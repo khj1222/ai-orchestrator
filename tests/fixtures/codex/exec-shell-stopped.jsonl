@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a090c9-5e7d-7542-828e-4fb161cd9bcc"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll run the command exactly as provided and wait for it to finish.\n"}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'python -c \"import time; time.sleep(120)\"'","aggregated_output":"","exit_code":null,"status":"in_progress"}}

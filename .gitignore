@@ -1,0 +1,25 @@
+# 실행 기록: 예제로 고른 것만 git add -f 로 추가한다
+runs/*
+!runs/.gitkeep
+
+# 실제 설정 (CLI 절대 경로, 모델 ID)
+config.toml
+
+# 작업자 worktree
+worktrees/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 편집기·OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
