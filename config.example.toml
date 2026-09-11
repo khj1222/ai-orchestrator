@@ -1,11 +1,16 @@
 # config.toml 로 복사해서 채운다. config.toml 은 버전 관리에 포함하지 않는다.
 # 경로의 버전·해시 폴더는 앱 업데이트로 바뀔 수 있다. 실행 시점에 확인한다.
+#
+# 주의: 데스크톱 앱이 MSIX 패키지로 설치된 경우, 그 앱이 띄운 프로세스가 보는 AppData 경로는
+# 패키지 안으로 가상화된 것이라 일반 셸에서는 존재하지 않는다. 여기 적는 경로는 반드시
+# 실행기가 실제로 돌아갈 셸에서 확인한 것이어야 한다.
 
 [paths]
-# codex.exe 절대 경로 (Codex 앱 번들)
+# codex.exe 절대 경로 (Codex 앱 번들). 가상화 대상이 아니다.
 codex = 'C:\Users\<user>\AppData\Local\OpenAI\Codex\bin\<hash>\codex.exe'
-# claude.exe 절대 경로 (Claude 데스크톱 앱 번들)
-claude = 'C:\Users\<user>\AppData\Roaming\Claude\claude-code\<version>\claude.exe'
+# claude.exe 절대 경로. 독립 설치(irm https://claude.ai/install.ps1 | iex)를 쓴다.
+# 데스크톱 앱 번들(%APPDATA%\Claude\claude-code\...)은 패키지 안에 있어 쓰지 않는다.
+claude = 'C:\Users\<user>\.local\bin\claude.exe'
 # Codex 세션 로그 폴더 (rate_limits 스냅샷을 읽는 위치)
 codex_sessions = 'C:\Users\<user>\.codex\sessions'
 
