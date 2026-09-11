@@ -7,6 +7,10 @@
 |---|---|
 | `codex/exec-ok.jsonl` | `codex exec --json` 정상 실행. thread.started / turn.started / item.completed(agent_message) / turn.completed(usage) |
 | `codex/exec-shell-stopped.jsonl` | 셸 명령 실행 중 프로세스 트리를 강제 종료한 실행. command_execution 항목 포함, 마지막 턴 미완료 |
-| `claude/print-not-logged-in.json` | `claude -p --output-format json` 의 오류 결과. is_error=true, result 에 로그인 안내. 필드 구조는 정상 결과와 같다 |
+| `claude/print-ok.json` | `claude -p --output-format json` 성공. is_error=false, terminal_reason=completed, result="OK". 첫 호출이라 cache_creation 7259 + cache_read 15445 토큰이 붙었다 |
+| `claude/print-ok-cached.json` | 같은 성공이지만 캐시가 살아 있는 상태. total_cost_usd 가 첫 호출의 약 1/7 |
+| `claude/print-not-logged-in.json` | 오류 결과. is_error=true, terminal_reason=api_error, result 에 로그인 안내 |
 
-정상 로그인 상태의 `claude -p` 성공 샘플은 아직 없다. 로그인 후 채취해 `claude/print-ok.json` 으로 추가한다.
+**세 Claude 파일의 최상위 필드 구조는 같다.** 성공과 실패를 `result` 문자열로 구분하지 말고 `is_error` 와 `terminal_reason` 으로 판정해라.
+
+**강제 종료된 `claude -p` 의 샘플은 없다.** 중지되면 stdout 과 stderr 가 모두 비기 때문이다. JSON 은 실행이 끝날 때 한 번에 쓰이므로 부분 출력조차 남지 않는다. 빈 출력을 파싱 실패로 다루지 말고 중지 가능성으로 다뤄야 한다. Codex 의 JSONL 은 이벤트마다 흘려 쓰이므로 중간까지의 기록이 남는다는 점에서 다르다. 자세한 내용은 설계 문서의 `08-g0-log.md` 4.2절.
