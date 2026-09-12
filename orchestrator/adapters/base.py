@@ -32,6 +32,10 @@ store, or arbitrary event metadata is copied into this result.
     command_executions: list[CommandExecution] = field(default_factory=list)
     status: Literal["incomplete", "completed", "failed"] = "incomplete"
     reason_code: str | None = None
+    # W4 에서 추가(기본값 있음, W3 파서는 채우지 않음). Claude 의 subagent_stats.spawned 와
+    # total_cost_usd. 구독 사용자에게 청구되는 금액이 아니라 CLI 가 보고한 참고값이다.
+    subagents_spawned: int | None = None
+    cost_usd_reported: float | None = None
 
 
 class ProcessControl(Protocol):
