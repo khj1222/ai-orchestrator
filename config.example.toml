@@ -19,8 +19,16 @@ codex_sessions = 'C:\Users\<user>\.codex\sessions'
 
 [routes.codex-default]
 tool = "codex"
-model = "TO_BE_SELECTED"
+# 2026-09-12 결정: 이 PC의 ~/.codex/config.toml 전역 기본값과 동일하게 맞춘다.
+# gpt-6-astra 는 2026-09 기준 Codex 의 최상위 모델(Codex CLI 0.153.0+ 필요, 이 PC 0.154.0-alpha.6.2로 충족).
+# reasoning effort 표기는 Light/Medium/High/Extra High 네 단계이나, CLI 설정 문자열은
+# 이 PC에서 실제로 동작 중인 "high" 로 둔다("extra-high" 등 상위 단계의 정확한 문자열은 미확인).
+model = "gpt-6-astra"
+model_reasoning_effort = "high"
 sandbox = "workspace-write"
+# 2026-09-12 결정 (W3 검토 U1): ephemeral 비활성화. rate_limits 조회를 유지하는 대신
+# ~/.codex/sessions/ 롤아웃이 계속 쌓이는 것을 감수한다(2026-09-12 기준 813개·1.96GB).
+ephemeral = false
 
 [routes.claude-implement]
 tool = "claude"
@@ -39,8 +47,9 @@ permission_mode = "plan"
 max_attempts_total = 2
 # 통합 후 수정 순환 허용 횟수 (W0 에서 확정)
 integration_fix_cycles = 1
-# 한 시도의 벽시계 한도 (초). 실행 전 반드시 지정한다.
-timeout_seconds = "TO_BE_SELECTED"
+# 한 시도의 벽시계 한도 (초). 2026-09-12 결정: 1시간. W1·W3처럼 짧은 S 크기 작업엔
+# 여유롭고, xhigh effort 검토나 M 크기 구현 작업까지 커버하기 위한 값이다.
+timeout_seconds = 3600
 # 유료 API 경로 사용 여부. 첫 버전은 비활성화.
 paid_api_allowed = false
 
