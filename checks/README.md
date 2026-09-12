@@ -54,6 +54,13 @@ W5 `detect_out_of_scope_changes(worktree, base_commit, allowed)`를 검증 workt
 
 ## 증거
 
-`run_checks(evidence_root=...)` 아래 `<check_id>/`에 `stdout.bin`, `stderr.bin`, `command.json`(argv·시각·process.json·stop 결과), `environment.json`(검증기·검사 버전, Python, 제거한 환경 변수 이름), `scope.json`, `reason.txt`가 남는다. `Check.evidence`의 경로는 `evidence_root` 기준 상대 경로다. `Check.subject_manifest_hash`는 대상 commit의 **tree 해시**다. 파일 내용이 같으면 같다.
+`run_checks(evidence_root=...)` 아래 `checks/<check_id>/`에 `stdout.bin`, `stderr.bin`, `command.json`(argv·시각·process.json·stop 결과), `environment.json`(검증기·검사 버전, Python, 제거한 환경 변수 이름), `scope.json`, `reason.txt`가 남는다. 검증 worktree는 `evidence_root/verify-worktree`라 증거 폴더와 겹치지 않는다. `Check.evidence`의 경로는 `evidence_root` 기준 상대 경로다. `Check.subject_manifest_hash`는 대상 commit의 **tree 해시**다. 파일 내용이 같으면 같다.
 
 `Check.subject_commit`이 지금 검증하려는 commit과 다르면 그 pass는 쓸 수 없다(`is_check_current`).
+
+## 격리 규칙
+
+- 검사가 검증 worktree의 **소스를 바꾸면**(HEAD 이동, 추적 파일 수정·삭제·스테이지) 그 검사는 `undecidable`(`subject_modified`)이고 원래 판정은 `evidence["original_verdict"]`에 남는다. 검사 정의를 고쳐야 한다.
+- 검사가 무엇이든 남기면(untracked·ignored 포함) 다음 검사는 **새 worktree**에서 돈다.
+- 시간 초과 후 프로세스 트리 종료를 확인하지 못하면(`stop_state != "stopped"`) 남은 검사는 `verification_aborted`로 모두 `undecidable`이고, worktree는 지우지 않고 `VerificationRun.worktree_path`에 남긴다.
+- 검증기 자체의 예외는 `verifier_error`로 그 검사만 `undecidable`이다. `run_checks`는 예외를 던지지 않는다.
