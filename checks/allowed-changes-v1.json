@@ -1,0 +1,9 @@
+{
+  "check_id": "allowed-changes-v1",
+  "kind": "scope",
+  "validator_version": "1",
+  "command_id": "workspace-scope",
+  "allowed_write_paths": null,
+  "cache_patterns": ["__pycache__/", ".pytest_cache/", "*.pyc"],
+  "description": "기준 commit 이후의 모든 변경(커밋·index·working tree·untracked)이 작업 명세의 allowed_write_paths 안에만 있는지 본다. 캐시 경로는 위반에서 빼고 따로 기록한다. 검사 불가면 undecidable."
+}

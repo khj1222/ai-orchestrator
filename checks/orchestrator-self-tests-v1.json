@@ -1,0 +1,11 @@
+{
+  "check_id": "orchestrator-self-tests-v1",
+  "kind": "command",
+  "validator_version": "1",
+  "command_id": "pytest-orchestrator",
+  "command": ["{python}", "-m", "pytest", "tests", "-q", "-p", "no:cacheprovider"],
+  "cwd": ".",
+  "timeout_seconds": 1200,
+  "required_artifacts": ["orchestrator/__init__.py", "tests"],
+  "description": "실행기 저장소 자체의 테스트. W7 의 더미 완주 시험에서 이 저장소를 대상으로 쓸 때의 예시 검사다."
+}
