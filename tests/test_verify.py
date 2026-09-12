@@ -119,7 +119,7 @@ def test_missing_artifact_fails_without_running_command(repo, checks_dir, eviden
     missing = json.loads((evidence / check.evidence["missing_artifacts"]).read_text(encoding="utf-8"))
     assert missing == {"missing": ["methods/b.py"]}
     assert not marker.exists()
-    assert not (evidence / check_id / "stdout.bin").exists()
+    assert not (evidence / "checks" / check_id / "stdout.bin").exists()
 
 
 # ---------------------------------------------------------------- undecidable
