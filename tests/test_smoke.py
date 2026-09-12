@@ -19,4 +19,4 @@ def test_fixtures_present():
 
 
 def test_config_example_present():
-    assert (REPO_ROOT / "config.example.toml").is_file()
+    assert (REPO_ROOT / "config.example.json").is_file()

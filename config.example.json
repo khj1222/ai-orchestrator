@@ -1,0 +1,38 @@
+{
+  "paths": {
+    "codex": "C:\\Users\\<user>\\AppData\\Local\\OpenAI\\Codex\\bin\\<hash>\\codex.exe",
+    "claude": "C:\\Users\\<user>\\.local\\bin\\claude.exe",
+    "codex_sessions": "C:\\Users\\<user>\\.codex\\sessions"
+  },
+  "routes": {
+    "codex-default": {
+      "tool": "codex",
+      "model": "gpt-6-astra",
+      "model_reasoning_effort": "high",
+      "sandbox": "workspace-write",
+      "ephemeral": false
+    },
+    "claude-implement": {
+      "tool": "claude",
+      "model": "claude-opus-5",
+      "effort": "high",
+      "permission_mode": "acceptEdits"
+    },
+    "claude-review": {
+      "tool": "claude",
+      "model": "claude-fable-5-1",
+      "effort": "xhigh",
+      "permission_mode": "plan"
+    }
+  },
+  "limits": {
+    "max_attempts_total": 2,
+    "integration_fix_cycles": 1,
+    "timeout_seconds": 3600,
+    "paid_api_allowed": false
+  },
+  "environment": {
+    "strip_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY"],
+    "extra_env": { "PYTHONUTF8": "1" }
+  }
+}

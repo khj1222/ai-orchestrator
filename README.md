@@ -17,7 +17,10 @@ Codex CLI와 Claude Code를 작업 단위로 실행하고, 결과를 검증한 �
 
 - Windows, Python 3.10 이상, git.
 - Codex CLI와 Claude Code가 설치되어 있고 각자 로그인되어 있어야 한다. 이 도구는 로그인 정보를 저장하거나 중계하지 않는다.
-- 실행 전 `config.example.toml`을 `config.toml`로 복사해 CLI 절대 경로와 모델 ID를 채운다. `config.toml`은 버전 관리에 포함하지 않는다.
+- 실행 전 `config.example.json`을 `config.json`으로 복사해 CLI 절대 경로와 모델 ID를 채운다. `config.json`은 버전 관리에 포함하지 않는다.
+  - `paths`의 경로는 실행기가 실제로 돌아갈 셸에서 확인한 것이어야 한다. 버전·해시 폴더는 앱 업데이트로 바뀔 수 있다.
+  - 데스크톱 앱이 MSIX 패키지로 설치된 경우, 그 앱이 띄운 프로세스가 보는 AppData 경로는 패키지 안으로 가상화되어 일반 셸에서는 존재하지 않는다. 반드시 실행기가 돌아갈 셸에서 확인한 경로를 쓴다.
+  - `routes`의 각 키는 작업 명세의 `route_id`가 가리키는 실행 설정이다. 모델은 전체 ID로 적는다(별칭은 가리키는 대상이 바뀔 수 있다).
 
 ## 개발
 
@@ -43,6 +46,7 @@ orchestrator/          실행 관리자
     base.py            어댑터 계약                                   [W3]
     codex.py           codex exec 어댑터                             [W3]
     claude.py          claude -p 어댑터                              [W4]
+config.example.json    CLI 절대 경로, 모델 ID, 한도 (실제 config.json은 gitignore)
 checks/                등록 검사 정의
 examples/search-ab/    첫 과제 프로젝트                               [W8]
 verifier/              비공개 참조값·평가 질의·검증 스크립트            [W9]

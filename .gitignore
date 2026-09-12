@@ -3,7 +3,7 @@ runs/*
 !runs/.gitkeep
 
 # 실제 설정 (CLI 절대 경로, 모델 ID)
-config.toml
+config.json
 
 # 작업자 worktree
 worktrees/
