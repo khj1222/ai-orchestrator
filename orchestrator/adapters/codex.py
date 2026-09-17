@@ -103,13 +103,16 @@ The process layer must still handle a file disappearing before process start.
                 _workspace_path(spec.last_message_path, workspace)]
         if spec.output_schema_path is not None:
             argv += ["--output-schema", _workspace_path(spec.output_schema_path, workspace)]
-        argv += ["-s", spec.sandbox, "-C", str(workspace), "--model", model]
+        # The convenience flag selects workspace-write itself; CLI rejects -s with it.
+        if spec.approve_for_me:
+            argv.append("--approve-for-me")
+        else:
+            argv += ["-s", spec.sandbox]
+        argv += ["-C", str(workspace), "--model", model]
         if spec.effort is not None:
             effort = _text(spec.effort, "effort")
             # JSON string syntax is valid TOML for these simple effort values.
             argv += ["-c", "model_reasoning_effort=" + json.dumps(effort)]
-        if spec.approve_for_me:
-            argv.append("--approve-for-me")
         if spec.ephemeral:
             argv.append("--ephemeral")
         if spec.skip_git_repo_check:

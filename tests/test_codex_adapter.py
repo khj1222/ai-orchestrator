@@ -249,7 +249,7 @@ def test_auto_review_is_opt_in_and_preserves_sandbox(command_inputs):
     assert "--approve-for-me" not in adapter.build_command(spec, workspace, prompt)
     argv = adapter.build_command(replace(spec, sandbox="workspace-write", approve_for_me=True), workspace, prompt)
     assert argv.count("--approve-for-me") == 1
-    assert argv[argv.index("-s") + 1] == "workspace-write"
+    assert "-s" not in argv and "--sandbox" not in argv
     assert "--dangerously-bypass-approvals-and-sandbox" not in argv
 
 
