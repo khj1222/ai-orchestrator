@@ -459,3 +459,20 @@ def test_interrupted_verification_does_not_start_another_worker(case, monkeypatc
 
 if __name__ == "__main__" and sys.argv[1:2] == ["--driver"]:
     raise SystemExit(cli.main(sys.argv[2:], adapter_factory=dummy_factory))
+
+
+@pytest.mark.parametrize("value,sandbox,valid", [
+    (True, "workspace-write", True),
+    (False, "read-only", True),
+    ("true", "workspace-write", False),
+    (True, "read-only", False),
+    (True, "danger-full-access", False),
+])
+def test_validate_auto_review_route_before_launch(case, value, sandbox, valid):
+    route = case.config["routes"]["offline"]
+    route.update(approve_for_me=value, sandbox=sandbox)
+    errors = cli.validate_task(case.spec, case.config, case.checks)
+    assert (not errors) is valid
+    if valid:
+        adapter, resolved = cli.adapter_for(route, case.config, case.root, case.repo)
+        assert resolved.approve_for_me is value
