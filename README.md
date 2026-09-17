@@ -2,13 +2,13 @@
 
 Codex CLI와 Claude Code를 작업 단위로 실행하고, 결과를 검증한 뒤 직렬로 통합하는 개인용 실행 관리자.
 
-**상태: 개발 시작 단계. 아직 동작하는 기능이 없다.** 이 저장소는 비공개이며, 작동하는 예제 하나를 완주한 뒤에 공개할 계획이다.
+**상태 (2026-09-12): W0~W7 병합 완료, 단일 작업 CLI 구현.** W7 테스트 37개와 전체 테스트 313개가 통과했다. 실제 Codex·Claude CLI로 성공·실패·중지를 확인하는 W7b는 미실행이며 G1 통과는 아직 선언하지 않았다. 이 저장소는 비공개이며, 작동하는 예제 하나를 완주한 뒤에 공개할 계획이다.
 
 설계 문서와 개발 계획은 별도 폴더(`AI-Orchestrator-Research`)에 있다. 작업 단위는 그 폴더의 `09-dev-plan.md`에서 W 번호로 관리한다.
 
 ## 범위
 
-- 한 PC, 한 저장소, 고정 계획, 최대 작업자 2명, 직렬 통합.
+- 목표는 한 PC, 한 저장소, 고정 계획, 최대 작업자 2명, 직렬 통합이다. 현재는 단일 작업 실행까지 구현했다.
 - 작업(task)과 실행 시도(attempt)를 분리하고, 검증 결과를 정확한 commit 해시에 묶는다.
 - 상태 전이는 등록된 검사 결과만으로 결정한다. 모델의 완료 보고나 검토 의견은 상태를 바꾸지 않는다.
 - 자동 라우팅, 로컬 분류기, 화면, 원격 분산은 첫 버전 범위 밖이다.
@@ -39,9 +39,9 @@ orchestrator/          실행 관리자
   process.py           프로세스 실행·수집·트리 종료·식별 기록          [W2]
   workspace.py         git worktree 생성·삭제, 기준 commit 검사       [W5]
   verify.py            등록 검사 실행, verdict 기록                   [W6]
-  integrate.py         직렬 merge, 통합 검사                         [3단계]
-  planner.py           계획 파일 검증                                [W10]
-  cli.py               orch validate / run-task / run / status / stop [W7]
+  integrate.py         직렬 merge, 통합 검사                         [3단계, 예정]
+  planner.py           계획 파일 검증                                [W10, 예정]
+  cli.py               orch validate / run-task / status / stop       [W7]
   adapters/
     base.py            어댑터 계약                                   [W3]
     codex.py           codex exec 어댑터                             [W3]
@@ -55,4 +55,19 @@ tests/                 실행기 자체의 테스트
 runs/                  실행 기록 (버전 관리 제외)
 ```
 
-대괄호는 담당 작업 번호다. 아직 만들어지지 않은 파일이 대부분이다.
+대괄호는 담당 작업 번호다. W8 이후의 예제·검증 자료와 통합 기능은 후속 작업이며 `orch run`은 아직 제공하지 않는다.
+
+## 단일 작업 CLI
+
+설치 후 `orch` 또는 `python -m orchestrator.cli`로 실행한다. 작업 명세·설정은 JSON이고, 등록 검사 정의는 `checks/README.md`를 따른다.
+
+```text
+orch validate task.json --repo <target-repo> --config <config.json> --checks-dir <checks-dir>
+orch run-task task.json --repo <target-repo> --config <config.json> --checks-dir <checks-dir> --run-root <record-root>
+orch status <run-id> --repo <target-repo> --run-root <record-root>
+orch stop <run-id> <task-id> --repo <target-repo> --run-root <record-root>
+```
+
+`--run-root` 기본값은 대상 저장소이며 그 아래 `runs/`에 기록한다. 다른 저장소를 대상으로 할 때는 저장소 밖 기록 경로를 지정해 untracked 기록 때문에 작업 공간 생성이 거부되지 않도록 한다. 시작 전 대상 저장소는 clean이어야 한다. `validate`는 CLI 실행 파일의 존재까지 확인하지 않으므로 실제 호출 전에 경로를 확인한다.
+
+등록 검사가 정확한 결과 commit에 대해 모두 통과해야 작업을 채택한다. 결과 commit은 `refs/orchestrator/<attempt-id>`에 보존된다. 프로세스 종료를 확인하지 못하면 blocked 상태와 작업 공간을 보존한다. 검증 단계 중 `stop`은 busy를 반환하며, Ctrl+C에 의한 검증 자식 정리는 아직 검증하지 않았다.
