@@ -2,7 +2,7 @@
 
 Codex CLI와 Claude Code를 작업 단위로 실행하고, 결과를 검증한 뒤 직렬로 통합하는 개인용 실행 관리자.
 
-**상태 (2026-09-17): W7b Codex 경로 통과, Claude 경로 대기.** Codex CLI 0.155.0-alpha.2.6, gpt-6-astra/high로 성공·실패·중지를 실제 검증했다. 전체 오프라인 회귀 검사 322개 통과. Git worktree 커밋을 위한 자동 승인 심사 옵션 수정은 `w7b-codex-live` 브랜치에 있으며 독립 검토·main 병합 전이다. G1 전체 통과는 아직 선언하지 않았다.
+**상태 (2026-09-20): W7b 두 경로 통과.** Codex CLI 0.155.0-alpha.2.6(gpt-6-astra/high, 09-17)와 Claude Code 2.1.268(claude-opus-5/high, 09-20)로 각각 성공·실패·중지를 실제 검증했다. 자동 승인 심사 옵션 수정(`w7b-codex-live`)은 독립 검토 후 main에 병합됐고 전체 오프라인 회귀 검사 322개 통과. G1은 2026-09-20 사용자가 확정했다. 2단계(W8 규격과 개발 자료)부터 진행한다.
 
 설계 문서와 개발 계획은 별도 폴더(`AI-Orchestrator-Research`)에 있다. 작업 단위는 그 폴더의 `09-dev-plan.md`에서 W 번호로 관리한다.
 
@@ -73,6 +73,17 @@ orch stop <run-id> <task-id> --repo <target-repo> --run-root <record-root>
 `--run-root` 기본값은 대상 저장소이며 그 아래 `runs/`에 기록한다. 다른 저장소를 대상으로 할 때는 저장소 밖 기록 경로를 지정해 untracked 기록 때문에 작업 공간 생성이 거부되지 않도록 한다. 시작 전 대상 저장소는 clean이어야 한다. `validate`는 CLI 실행 파일의 존재까지 확인하지 않으므로 실제 호출 전에 경로를 확인한다.
 
 등록 검사가 정확한 결과 commit에 대해 모두 통과해야 작업을 채택한다. 결과 commit은 `refs/orchestrator/<attempt-id>`에 보존된다. 프로세스 종료를 확인하지 못하면 blocked 상태와 작업 공간을 보존한다. 검증 단계 중 `stop`은 busy를 반환하며, Ctrl+C에 의한 검증 자식 정리는 아직 검증하지 않았다.
+
+## W7b Claude 실행 기록 (2026-09-20)
+
+`runs/g1-claude-20260920-setup/audit-summary.json`에 교차 확인 결과를 보관한다. 동일 접두어의 `-success`, `-failure`, `-stop` 폴더에 원본 로그와 검사 기록이 있다.
+
+- 설정: `claude-opus-5`, effort high, `--permission-mode acceptEdits`, `--allowedTools Bash(git:*)`(중지 시나리오는 `Bash(python:*)` 추가), `--json-schema` 인라인. 제어 세션이 Claude Code 안이므로 `CLAUDECODE`·`CLAUDE_CODE_ENTRYPOINT`를 `strip_env`에 추가했다.
+- 성공: 함수 9개를 보고한 결과 commit `da6c079`, 내용·범위 검사 pass, accepted, 종료 0, 9턴, permission 거부 0건.
+- 실패: 없는 파일, missing_artifact, failed, 종료 1. CLI 자체는 종료 0이었지만 채택되지 않음.
+- 중지: claude.exe 아래 bash·python 자손을 포함한 7개 프로세스를 관측, `orch stop` 후 잔존 0, cancelled, 실행기 종료 3. 강제 종료된 `claude -p`는 stdout을 남기지 않는다(0바이트).
+- 최종 구조화 응답은 결과 JSON의 `structured_output` 필드에 있다. 어댑터는 `result` 문자열만 보존하므로 감사는 `evidence/stdout.log`를 직접 읽었다.
+- 각 시나리오 시도 1회·600초 상한. 검증 중 stop/Ctrl+C와 실제 타임아웃·재시도는 시험하지 않음.
 
 ## W7b Codex 실행 기록 (2026-09-17)
 
