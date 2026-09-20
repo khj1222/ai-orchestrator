@@ -10,6 +10,7 @@
       "model": "gpt-6-astra",
       "model_reasoning_effort": "high",
       "sandbox": "workspace-write",
+      "approve_for_me": true,
       "ephemeral": false
     },
     "claude-implement": {

@@ -242,3 +242,23 @@ def test_rate_reader_rejects_malformed_complete_records(tmp_path, tail):
 def test_rate_reader_rejects_bad_snapshot_shapes(tmp_path, limits):
     with pytest.raises(EventParseError):
         read_rate_limits(write_events(tmp_path, [rate_event(limits)]))
+
+
+def test_auto_review_is_opt_in_and_preserves_sandbox(command_inputs):
+    adapter, spec, workspace, prompt = command_inputs
+    assert "--approve-for-me" not in adapter.build_command(spec, workspace, prompt)
+    argv = adapter.build_command(replace(spec, sandbox="workspace-write", approve_for_me=True), workspace, prompt)
+    assert argv.count("--approve-for-me") == 1
+    assert "-s" not in argv and "--sandbox" not in argv
+    assert "--dangerously-bypass-approvals-and-sandbox" not in argv
+
+
+@pytest.mark.parametrize("changes", [
+    {"approve_for_me": "true", "sandbox": "workspace-write"},
+    {"approve_for_me": True, "sandbox": "read-only"},
+    {"approve_for_me": True, "sandbox": "danger-full-access"},
+])
+def test_auto_review_rejects_ambiguous_or_conflicting_settings(command_inputs, changes):
+    adapter, spec, workspace, prompt = command_inputs
+    with pytest.raises(ValueError):
+        adapter.build_command(replace(spec, **changes), workspace, prompt)

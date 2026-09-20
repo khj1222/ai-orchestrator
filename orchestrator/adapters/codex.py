@@ -30,6 +30,7 @@ class CodexSpec:
     effort: str | None = None
     ephemeral: bool = True
     skip_git_repo_check: bool = False
+    approve_for_me: bool = False
 
 
 class EventParseError(ValueError):
@@ -92,15 +93,22 @@ The process layer must still handle a file disappearing before process start.
         model = _text(spec.model, "model")
         if spec.sandbox not in {"read-only", "workspace-write", "danger-full-access"}:
             raise ValueError("Unsupported sandbox")
-        for option in (spec.ephemeral, spec.skip_git_repo_check):
+        for option in (spec.ephemeral, spec.skip_git_repo_check, spec.approve_for_me):
             if not isinstance(option, bool):
                 raise ValueError("Execution switches must be boolean")
+        if spec.approve_for_me and spec.sandbox != "workspace-write":
+            raise ValueError("approve_for_me requires workspace-write sandbox")
         workspace = Path(workspace).resolve()
         argv = [str(self.codex_path), "exec", "--json", "-o",
                 _workspace_path(spec.last_message_path, workspace)]
         if spec.output_schema_path is not None:
             argv += ["--output-schema", _workspace_path(spec.output_schema_path, workspace)]
-        argv += ["-s", spec.sandbox, "-C", str(workspace), "--model", model]
+        # The convenience flag selects workspace-write itself; CLI rejects -s with it.
+        if spec.approve_for_me:
+            argv.append("--approve-for-me")
+        else:
+            argv += ["-s", spec.sandbox]
+        argv += ["-C", str(workspace), "--model", model]
         if spec.effort is not None:
             effort = _text(spec.effort, "effort")
             # JSON string syntax is valid TOML for these simple effort values.

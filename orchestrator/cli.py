@@ -127,12 +127,14 @@ def validate_task(spec: dict, config: dict, checks_dir: Path) -> list[str]:
             paths = config.get("paths", {})
             if not isinstance(paths, dict) or not _text(paths.get(tool)):
                 errors.append(f"config.paths.{tool} must name the CLI executable")
-            for key in ("ephemeral", "skip_git_repo_check", "session_persistence"):
+            for key in ("ephemeral", "skip_git_repo_check", "session_persistence", "approve_for_me"):
                 if key in route and type(route[key]) is not bool:
                     errors.append(f"route.{key} must be boolean")
             if tool == "codex" and route.get("sandbox", "read-only") not in (
                     "read-only", "workspace-write", "danger-full-access"):
                 errors.append("unsupported Codex sandbox")
+            if tool == "codex" and route.get("approve_for_me") is True and route.get("sandbox", "read-only") != "workspace-write":
+                errors.append("approve_for_me requires workspace-write sandbox")
             if tool == "claude" and route.get("permission_mode", "acceptEdits") not in tuple(PERMISSION_MODES):
                 errors.append("unsupported Claude permission_mode")
             effort = route.get("effort", route.get("model_reasoning_effort"))

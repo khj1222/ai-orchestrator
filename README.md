@@ -2,7 +2,7 @@
 
 Codex CLI와 Claude Code를 작업 단위로 실행하고, 결과를 검증한 뒤 직렬로 통합하는 개인용 실행 관리자.
 
-**상태 (2026-09-12): W0~W7 병합 완료, 단일 작업 CLI 구현.** W7 테스트 37개와 전체 테스트 313개가 통과했다. 실제 Codex·Claude CLI로 성공·실패·중지를 확인하는 W7b는 미실행이며 G1 통과는 아직 선언하지 않았다. 이 저장소는 비공개이며, 작동하는 예제 하나를 완주한 뒤에 공개할 계획이다.
+**상태 (2026-09-17): W7b Codex 경로 통과, Claude 경로 대기.** Codex CLI 0.155.0-alpha.2.6, gpt-6-astra/high로 성공·실패·중지를 실제 검증했다. 전체 오프라인 회귀 검사 322개 통과. Git worktree 커밋을 위한 자동 승인 심사 옵션 수정은 `w7b-codex-live` 브랜치에 있으며 독립 검토·main 병합 전이다. G1 전체 통과는 아직 선언하지 않았다.
 
 설계 문서와 개발 계획은 별도 폴더(`AI-Orchestrator-Research`)에 있다. 작업 단위는 그 폴더의 `09-dev-plan.md`에서 W 번호로 관리한다.
 
@@ -21,6 +21,8 @@ Codex CLI와 Claude Code를 작업 단위로 실행하고, 결과를 검증한 �
   - `paths`의 경로는 실행기가 실제로 돌아갈 셸에서 확인한 것이어야 한다. 버전·해시 폴더는 앱 업데이트로 바뀔 수 있다.
   - 데스크톱 앱이 MSIX 패키지로 설치된 경우, 그 앱이 띄운 프로세스가 보는 AppData 경로는 패키지 안으로 가상화되어 일반 셸에서는 존재하지 않는다. 반드시 실행기가 돌아갈 셸에서 확인한 경로를 쓴다.
   - `routes`의 각 키는 작업 명세의 `route_id`가 가리키는 실행 설정이다. 모델은 전체 ID로 적는다(별칭은 가리키는 대상이 바뀔 수 있다).
+
+Codex의 `approve_for_me: true`는 CLI의 `--approve-for-me`를 사용해 필요한 권한 요청을 자동 심사로 보냅니다. `workspace-write`에서만 허용하며, 샌드박스를 해제하지 않습니다. Git worktree의 메타데이터가 작업 공간 밖에 있는 경우 결과 커밋에 이 설정이 필요할 수 있습니다. 옵션을 생략한 기존 설정의 동작은 유지됩니다. CLI가 해당 옵션을 지원하는지는 실행 전 `codex exec --help`로 확인합니다.
 
 ## 개발
 
@@ -71,3 +73,16 @@ orch stop <run-id> <task-id> --repo <target-repo> --run-root <record-root>
 `--run-root` 기본값은 대상 저장소이며 그 아래 `runs/`에 기록한다. 다른 저장소를 대상으로 할 때는 저장소 밖 기록 경로를 지정해 untracked 기록 때문에 작업 공간 생성이 거부되지 않도록 한다. 시작 전 대상 저장소는 clean이어야 한다. `validate`는 CLI 실행 파일의 존재까지 확인하지 않으므로 실제 호출 전에 경로를 확인한다.
 
 등록 검사가 정확한 결과 commit에 대해 모두 통과해야 작업을 채택한다. 결과 commit은 `refs/orchestrator/<attempt-id>`에 보존된다. 프로세스 종료를 확인하지 못하면 blocked 상태와 작업 공간을 보존한다. 검증 단계 중 `stop`은 busy를 반환하며, Ctrl+C에 의한 검증 자식 정리는 아직 검증하지 않았다.
+
+## W7b Codex 실행 기록 (2026-09-17)
+
+최초 대상 저장소의 `runs/g1-codex-20260917-r3-setup/audit-summary.json`에 교차 확인 결과를 보관한다. 동일 접두어의 `-success`, `-failure`, `-stop` 폴더에 원본 로그와 검사 기록이 있다.
+
+- 성공: 함수 9개를 보고한 결과 commit `ef21db3`, 내용·범위 검사 pass, accepted, 종료 0.
+- 실패: 없는 파일, missing_artifact, failed, 종료 1. 모델 CLI 자체는 종료 0이었지만 채택되지 않음.
+- 중지: Python 자식·손자를 포함한 8개 프로세스를 관측, orch stop 후 잔존 0, cancelled, 실행기 종료 3.
+- 실제 시나리오는 각각 시도 1회·600초 상한. 기본 설정의 2회·3600초는 유지.
+- 최초 커밋 권한 실패와 두 번째 CLI 옵션 충돌 기록도 보존. --approve-for-me는 -s와 함께 쓰지 않음.
+- 검증 중 stop/Ctrl+C와 실제 타임아웃·재시도는 이번 범위에서 시험하지 않음.
+
+수정 브랜치 병합 후 기존 `config.json`의 Codex route에 `approve_for_me: true`를 추가하면 검증한 커밋 승인 경로를 사용한다. 미병합 main은 새 설정 키를 지원하지 않으므로 기존 config.json은 변경하지 않았다. 실제 검증은 runs 아래 별도 설정으로 수행했다.
