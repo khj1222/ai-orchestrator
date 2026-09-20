@@ -19,11 +19,14 @@ PROTOCOL_DIR = Path(__file__).resolve().parent
 EXAMPLE_DIR = PROTOCOL_DIR.parent
 DEV_DIR = EXAMPLE_DIR / "data" / "dev"
 
-UNRESOLVED_MARKERS = ("TO_BE_", "TBD", "추후 결정", "나중에 정한다")
+UNRESOLVED_MARKERS = ("TO_BE_", "TBD", "미정", "추후 결정", "나중에 정한다")
 DOC_ID = re.compile(r"^d[0-9]{3}$")
 QUERY_ID = re.compile(r"^q[0-9]{2}$")
 DEV_DOCUMENTS = 30
 DEV_QUERIES = 10
+# data-format.md fixes the dev ID sets exactly; evaluation data (W9) is not bound by these.
+DEV_DOC_IDS = [f"d{i:03d}" for i in range(1, DEV_DOCUMENTS + 1)]
+DEV_QUERY_IDS = [f"q{i:02d}" for i in range(1, DEV_QUERIES + 1)]
 MAX_DOC_CHARS = 300
 MAX_QUERY_CHARS = 100
 
@@ -115,7 +118,7 @@ def check_documents(errors: list[str]) -> dict[str, str]:
         if set(row) != {"doc_id", "text"}:
             errors.append(f"{where}: keys must be exactly doc_id, text (got {sorted(row)})")
         doc_id = row.get("doc_id")
-        if not isinstance(doc_id, str) or not DOC_ID.match(doc_id):
+        if not isinstance(doc_id, str) or not DOC_ID.fullmatch(doc_id):
             errors.append(f"{where}: doc_id must match ^d[0-9]{{3}}$")
             continue
         if doc_id in seen:
@@ -125,6 +128,8 @@ def check_documents(errors: list[str]) -> dict[str, str]:
         previous = doc_id
         _check_string(row.get("text"), where, MAX_DOC_CHARS, errors)
         seen[doc_id] = row.get("text") if isinstance(row.get("text"), str) else ""
+    if list(seen) != DEV_DOC_IDS:
+        errors.append(f"documents.jsonl: dev doc_id set must be exactly {DEV_DOC_IDS[0]}..{DEV_DOC_IDS[-1]}")
     return seen
 
 
@@ -143,7 +148,7 @@ def check_queries(documents: dict[str, str], errors: list[str]) -> list[dict]:
         if set(row) != {"query_id", "text", "relevant_doc_ids"}:
             errors.append(f"{where}: keys must be exactly query_id, text, relevant_doc_ids (got {sorted(row)})")
         query_id = row.get("query_id")
-        if not isinstance(query_id, str) or not QUERY_ID.match(query_id):
+        if not isinstance(query_id, str) or not QUERY_ID.fullmatch(query_id):
             errors.append(f"{where}: query_id must match ^q[0-9]{{2}}$")
             continue
         if query_id in seen:
@@ -170,6 +175,8 @@ def check_queries(documents: dict[str, str], errors: list[str]) -> list[dict]:
         text = row.get("text")
         if isinstance(text, str) and any(text.strip() == doc.strip() for doc in documents.values()):
             errors.append(f"{where}: query text is identical to a document text")
+    if sorted(seen) != DEV_QUERY_IDS:
+        errors.append(f"queries.jsonl: dev query_id set must be exactly {DEV_QUERY_IDS[0]}..{DEV_QUERY_IDS[-1]}")
     return rows
 
 

@@ -18,7 +18,7 @@ python -m runner.run --documents <documents.jsonl> --queries <queries.jsonl> --o
 | `--repeats` | `5` | 지연 측정 실행 횟수 (1 이상) |
 
 - 작업 디렉터리는 `examples/search-ab/`. 표준 라이브러리만.
-- 종료 코드 `0`은 아래 파일이 모두 만들어졌을 때만. 입력 오류(data-format.md §5)·`ValueError`·파일 쓰기 실패는 `0`이 아닌 종료 코드와 stderr 메시지. 부분 출력이 남아 있어도 성공으로 보지 않는다.
+- 종료 코드 `0`은 아래 파일이 모두 만들어졌을 때만. 입력 오류(data-format.md §5, 질의 0개 포함)·`ValueError`·파일 쓰기 실패는 `0`이 아닌 종료 코드와 stderr 메시지. 부분 출력이 남아 있어도 성공으로 보지 않는다.
 - stdout에는 요약 표(§5)만 출력한다. 질의별 결과는 stdout이 아니라 파일에 쓴다.
 
 ## 2. 원시 결과 `raw-a.jsonl`, `raw-b.jsonl`
@@ -26,7 +26,7 @@ python -m runner.run --documents <documents.jsonl> --queries <queries.jsonl> --o
 방법마다 파일 하나. 질의 파일의 줄 순서대로 한 줄에 하나:
 
 ```json
-{"method": "a", "query_id": "q01", "k": 3, "results": [{"rank": 1, "doc_id": "d001", "score": 4}, {"rank": 2, "doc_id": "d005", "score": 1}, {"rank": 3, "doc_id": "d002", "score": 1}]}
+{"method": "a", "query_id": "q01", "k": 3, "results": [{"rank": 1, "doc_id": "d001", "score": 4}, {"rank": 2, "doc_id": "d002", "score": 2}, {"rank": 3, "doc_id": "d004", "score": 2}]}
 ```
 
 | 키 | 규칙 |
@@ -69,7 +69,7 @@ python -m runner.run --documents <documents.jsonl> --queries <queries.jsonl> --o
 ```
 
 - `hit_at_3`: 질의 중 **상위 3개 결과(`rank <= 3`)에 `relevant_doc_ids`의 문서가 하나라도 있는 질의**의 비율. 분모는 전체 질의 수. 결과가 3개 미만이면 있는 것만 본다. 결과가 0개인 질의는 실패로 세고 `no_result_queries`에 더한다.
-- `hits`는 분자(정수). `hit_at_3 = hits / queries`를 반올림 없이 기록한다.
+- `hits`는 분자(정수). `hit_at_3 = hits / queries`를 반올림 없이 기록한다. 질의가 0개인 입력은 시작 전 오류이므로(data-format.md §5) 0으로 나누는 경우는 없다.
 - 관련 문서는 질의 파일의 `relevant_doc_ids`에서만 읽는다. 실행기는 관련성을 스스로 판단하지 않는다.
 - 이 지표는 검색 품질의 절대 수준이 아니라 "명세대로 구현·공정 측정·재현"을 확인하는 용도다. B가 A보다 나쁘거나 같아도 그대로 기록한다.
 
