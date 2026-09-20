@@ -1,0 +1,10 @@
+{
+  "check_id": "interface-contract-v1",
+  "kind": "command",
+  "validator_version": "1",
+  "command_id": "search-ab-interface-contract",
+  "command": ["{python}", "-B", "{worktree}/verifier/interface_contract.py"],
+  "cwd": ".",
+  "timeout_seconds": 120,
+  "required_artifacts": ["examples/search-ab/methods/__init__.py", "examples/search-ab/methods/a.py", "examples/search-ab/methods/b.py"]
+}

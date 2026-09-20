@@ -1,0 +1,10 @@
+{
+  "check_id": "method-behavior-v1",
+  "kind": "command",
+  "validator_version": "1",
+  "command_id": "search-ab-method-behavior",
+  "command": ["{python}", "-B", "{worktree}/verifier/method_behavior.py"],
+  "cwd": ".",
+  "timeout_seconds": 120,
+  "required_artifacts": ["examples/search-ab/methods/a.py", "examples/search-ab/methods/b.py"]
+}
