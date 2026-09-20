@@ -1,0 +1,10 @@
+{"query_id": "q01", "text": "커피 원두 보관 방법", "relevant_doc_ids": ["d001"]}
+{"query_id": "q02", "text": "김치 보관 온도", "relevant_doc_ids": ["d007"]}
+{"query_id": "q03", "text": "자전거 체인 기름칠", "relevant_doc_ids": ["d012"]}
+{"query_id": "q04", "text": "실내 식물 잎이 노랗게 변할 때", "relevant_doc_ids": ["d018"]}
+{"query_id": "q05", "text": "잠들기 전 습관", "relevant_doc_ids": ["d021", "d023", "d024"]}
+{"query_id": "q06", "text": "겨울 등산 준비물", "relevant_doc_ids": ["d028", "d029"]}
+{"query_id": "q07", "text": "집에서 발효 음식 만들기", "relevant_doc_ids": ["d006", "d008", "d009", "d010"]}
+{"query_id": "q08", "text": "화분에 씨앗 심는 방법", "relevant_doc_ids": ["d019", "d020"]}
+{"query_id": "q09", "text": "자전거 브레이크 점검", "relevant_doc_ids": ["d013"]}
+{"query_id": "q10", "text": "카페인 없는 커피", "relevant_doc_ids": ["d004"]}
