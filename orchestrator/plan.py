@@ -11,9 +11,15 @@ Rules (04 §9, 09 §3 W10):
   P4 each spec passes validate_task           P9 instruction files readable and nonempty
   P5 one owner per write path
 
-P8 only finds verbatim strings (whitespace-normalised). It cannot see an answer
-restated as an ID mapping, so it is detection, not a guarantee. Error messages
-name the source file and position of a private string, never the string itself.
+TO_BE_ is searched as a substring of every key and string value. P5 follows the
+string-prefix rule workspace.check_scope enforces. In P6 a deliverable ending in
+"/" is a directory; any other deliverable is a single file.
+
+P8 only finds verbatim strings (whitespace-normalised) within one instruction
+file or one spec key/value. It cannot see an answer restated as an ID mapping,
+so it is detection, not a guarantee. Private files contribute string values only
+(their keys are schema names). Error messages give the private file name, line
+and ordinal, never a string or key from that file.
 Nothing here runs Git or any process.
 """
 
@@ -21,11 +27,11 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 
 from . import process, verify
-from .cli import _id, _read, _relative, _text, _unresolved, validate_task
+from .cli import _id, _read, _relative, _text, validate_task
 
 PROTOCOL_HASH_RE = re.compile(r"[0-9a-f]{64}")
 LEAK_MIN_LENGTH = 8
@@ -35,13 +41,28 @@ EXECUTABLE_KEYS = {"task_id", "spec", "instructions"}
 COMPLETED_KEYS = {"task_id", "status", "completed_commit", "deliverables"}
 
 
-def _parts(path: str) -> tuple[str, ...]:
-    return tuple(p.casefold() for p in PurePosixPath(path.replace("\\", "/")).parts)
+def _norm(path: str) -> str:
+    return path.replace("\\", "/")
 
 
-def _covers(owner: str, target: str) -> bool:
-    owner_parts, target_parts = _parts(owner), _parts(target)
-    return target_parts[:len(owner_parts)] == owner_parts
+def _may_share(a: str, b: str) -> bool:
+    """Could one changed path be allowed by both prefixes? workspace.check_scope uses
+    plain string prefixes, so "ex/m" also allows "ex/methods-extra/"; compare caselessly
+    to stay conservative on Windows."""
+    a, b = _norm(a).casefold(), _norm(b).casefold()
+    return a.startswith(b) or b.startswith(a)
+
+
+def _allowed(prefix: str, path: str) -> bool:
+    """The exact rule workspace.check_scope enforces (case-sensitive string prefix)."""
+    return _norm(path).startswith(_norm(prefix))
+
+
+def _delivers(deliverable: str, artifact: str) -> bool:
+    """A deliverable ending in "/" is a directory and covers paths below it; any other
+    deliverable is one file and covers only itself."""
+    deliverable, artifact = _norm(deliverable), _norm(artifact)
+    return artifact.startswith(deliverable) if deliverable.endswith("/") else artifact == deliverable
 
 
 def _env_name(value) -> bool:
@@ -52,28 +73,52 @@ def _squash(text: str) -> str:
     return " ".join(text.split())
 
 
-def _private_strings(value, where, found):
+def _fields(value, out: list[str]) -> list[str]:
+    """Every JSON key and string value, each kept separate so that matches never
+    span two fields."""
     if isinstance(value, str):
-        if len(value.strip()) >= LEAK_MIN_LENGTH:
-            found.append((_squash(value), where))
+        out.append(value)
     elif isinstance(value, dict):
         for key, item in value.items():
-            _private_strings(item, f"{where}.{key}", found)
+            out.append(key)
+            _fields(item, out)
     elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _private_strings(item, f"{where}[{index}]", found)
+        for item in value:
+            _fields(item, out)
+    return out
+
+
+def _has_marker(value) -> bool:
+    return any("TO_BE_" in field for field in _fields(value, []))
+
+
+def _values(value, out: list[str]) -> list[str]:
+    if isinstance(value, str):
+        out.append(value)
+    elif isinstance(value, (dict, list)):
+        for item in (value.values() if isinstance(value, dict) else value):
+            _values(item, out)
+    return out
 
 
 def _load_private(folder: Path, name: str, errors) -> list[tuple[str, str]]:
+    """Private string values (LEAK_MIN_LENGTH or longer; keys are schema names such as
+    relevant_doc_ids and stay public) with a location made only of the file name, line
+    and ordinal, so a diagnostic never repeats private text, keys included."""
     found: list[tuple[str, str]] = []
+
+    def collect(record, where):
+        strings = [_squash(s) for s in _values(record, []) if len(s.strip()) >= LEAK_MIN_LENGTH]
+        found.extend((s, f"{where} string {n}") for n, s in enumerate(strings, 1))
+
     try:
         text = (folder / name).read_text(encoding="utf-8-sig")
         if name.endswith(".jsonl"):
             for number, line in enumerate(text.splitlines(), 1):
                 if line.strip():
-                    _private_strings(json.loads(line), f"{name}:{number}", found)
+                    collect(json.loads(line), f"{name} line {number}")
         else:
-            _private_strings(json.loads(text), name, found)
+            collect(json.loads(text), name)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         errors.append(f"leak check impossible: cannot read private file {name} ({type(error).__name__})")
     return found
@@ -132,7 +177,7 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
     errors: list[str] = []
 
     # P1 plan fields
-    if _unresolved(plan):
+    if _has_marker(plan):
         errors.append("plan: unresolved TO_BE_ value")
     unknown = set(plan) - PLAN_KEYS
     if unknown:
@@ -161,6 +206,9 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
         leak_sources = []
     elif private_env and not leak_sources:
         errors.append("plan: private_env is set but leak_sources is empty; P8 would check nothing")
+    for source in leak_sources:
+        if source["env"].casefold() not in {v.casefold() for v in private_env}:
+            errors.append(f"plan: leak_sources env {source['env']} must also be listed in private_env")
     tasks = plan.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         errors.append("plan: tasks must be a nonempty list")
@@ -169,7 +217,8 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
     # P2 entries, specs, instructions (P4, P9 inline)
     entries: dict[str, dict] = {}
     specs: dict[str, dict] = {}
-    texts: dict[str, str] = {}  # file label -> text, scanned by P8
+    texts: dict[str, str] = {}  # instruction file -> text, scanned whole by P8
+    spec_fields: dict[str, list[str]] = {}  # spec file -> keys and values, scanned one by one
     seen: set[str] = set()
     for index, entry in enumerate(tasks):
         if not isinstance(entry, dict) or not _id(entry.get("task_id")):
@@ -205,16 +254,19 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             errors.append(f"{task_id}: spec unreadable: {type(error).__name__}")
             continue
-        decoded: list[tuple[str, str]] = []
-        _private_strings(spec, "", decoded)  # scan decoded values, so \u escapes cannot hide a string
-        texts[entry["spec"]] = "\n".join(value for value, _ in decoded)
+        # decoded keys and values, one by one: \u escapes cannot hide a string and
+        # two neighbouring fields cannot form one
+        spec_fields[entry["spec"]] = _fields(spec, [])
         if not isinstance(spec, dict):
             errors.append(f"{task_id}: spec must be a JSON object")
             continue
         specs[task_id] = spec
+        if _has_marker(spec):
+            errors.append(f"{task_id}: spec contains an unresolved TO_BE_ value")
         for key in ("task_id", "run_id", "plan_version", "base_commit", "protocol_hash"):
             expected = task_id if key == "task_id" else plan.get(key)
-            if spec.get(key) != expected:
+            value = spec.get(key)
+            if type(value) is not type(expected) or value != expected:  # true != 1, 1.0 != 1
                 errors.append(f"{task_id}: spec {key} does not match the plan")
         errors.extend(f"{task_id}: {e}" for e in validate_task(
             spec, config, checks_dir, plan_task_ids=frozenset(t.get("task_id") for t in tasks
@@ -252,12 +304,12 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
              for p in s["allowed_write_paths"] if _relative(p)]
     for i, (task_a, path_a) in enumerate(owned):
         for task_b, path_b in owned[i + 1:]:
-            if task_a != task_b and (_covers(path_a, path_b) or _covers(path_b, path_a)):
+            if task_a != task_b and _may_share(path_a, path_b):
                 errors.append(f"write path owned twice: {path_a} ({task_a}) and {path_b} ({task_b})")
     for task_id, spec in specs.items():
         allowed = [p for p in spec.get("allowed_write_paths") or [] if _relative(p)]
         for item in spec.get("deliverables") or []:
-            if _relative(item) and not any(_covers(p, item) for p in allowed):
+            if _relative(item) and not any(_allowed(p, item) for p in allowed):
                 errors.append(f"{task_id}: deliverable {item} is outside its allowed_write_paths")
 
     # P6 command-check artifacts must come from this task or its prerequisites
@@ -280,7 +332,7 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
             except verify.CheckDefinitionError:
                 continue  # already reported by validate_task
             for artifact in definition.required_artifacts:
-                if not any(_covers(d, artifact) for d in available):
+                if not any(_delivers(d, artifact) for d in available):
                     errors.append(f"{task_id}: check {check_id} needs {artifact}, which neither this "
                                   "task nor its prerequisites deliver")
 
@@ -291,7 +343,8 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
                                            *(environment.get("strip_env") or [])] if isinstance(v, str)}
         extra = environment.get("extra_env") or {}
         extra_names = {k.casefold() for k in extra} if isinstance(extra, dict) else set()
-        for name in private_env:
+        # a leak source's folder is private too, whether or not private_env lists it
+        for name in dict.fromkeys([*private_env, *(s["env"] for s in leak_sources)]):
             if name.casefold() not in stripped:
                 errors.append(f"private_env {name} is not in config environment.strip_env")
             if name.casefold() in extra_names:
@@ -309,8 +362,11 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
             private.extend(_load_private(folder, name, errors))
     for label, text in texts.items():
         flat = _squash(text)
-        hits = sorted({where for secret, where in private if secret in flat})
-        for where in hits:
+        for where in sorted({where for secret, where in private if secret in flat}):
+            errors.append(f"{label}: contains a private string from {where}")
+    for label, values in spec_fields.items():
+        flat = [_squash(v) for v in values]
+        for where in sorted({where for secret, where in private if any(secret in v for v in flat)}):
             errors.append(f"{label}: contains a private string from {where}")
 
     return errors, ([] if errors else _order(list(entries), graph))

@@ -216,7 +216,7 @@ def test_private_env_without_leak_sources(case):
 def test_private_string_in_instructions_is_found_without_printing_it(case):
     case.instructions["search-module"] += "예시 질의: 합성   비밀\n질의를\n"
     text = errors_of(case)
-    assert "instructions/search-module.md: contains a private string from eval-queries.jsonl:1.text" in text
+    assert "instructions/search-module.md: contains a private string from eval-queries.jsonl line 1" in text
     assert SECRET not in text
 
 
@@ -264,6 +264,87 @@ def test_missing_instructions(case):
 def test_empty_instructions(case):
     case.instructions["integrate"] = "  \n"
     assert "integrate: instructions are empty" in errors_of(case)
+
+
+# Codex review 2026-10-11 (reviews/W10a-codex-review.md), regressions F1-F5, U1, U2
+@pytest.mark.parametrize("where", ["spec-text", "plan-field", "spec-key"])
+def test_f1_marker_inside_a_string_or_as_a_key(case, where):
+    if where == "spec-text":
+        case.specs["search-module"]["goal"] = "prefix TO_BE_FILLED suffix"
+    elif where == "plan-field":
+        case.plan["base_commit"] = "prefix-TO_BE_PINNED"
+        for value in case.specs.values():
+            value["base_commit"] = "prefix-TO_BE_PINNED"
+    else:
+        case.specs["search-module"]["TO_BE_FILLED"] = "ordinary value"
+    assert "unresolved TO_BE_" in errors_of(case)
+
+
+def test_f2_private_string_as_spec_key(case):
+    case.specs["search-module"][SECRET] = "x"
+    assert "tasks/search-module.json: contains a private string" in errors_of(case)
+
+
+@pytest.mark.parametrize("shape", ["fields", "array"])
+def test_f3_neighbouring_fields_do_not_form_a_private_string(case, shape):
+    write(case.tmp / "private" / "eval-queries.jsonl",
+          json.dumps({"text": "Read the public specification tasks/input-manifest.json"}) + "\n")
+    spec = case.specs["search-module"]
+    if shape == "fields":  # adjacent in the file, as in the review case
+        spec = {k: v for k, v in spec.items() if k != "goal"}
+        spec["goal"], spec["inputs_manifest"] = "Read the public specification", "tasks/input-manifest.json"
+        case.specs["search-module"] = spec
+    else:
+        spec["notes"] = ["Read the public specification", "tasks/input-manifest.json"]
+    errors, _ = run(case)
+    assert errors == []
+
+
+def test_f4_diagnostic_never_repeats_private_keys_or_values(case):
+    key, value = "private key canary A", "private value canary B"
+    write(case.tmp / "private" / "eval-queries.jsonl",
+          json.dumps({"text": SECRET}, ensure_ascii=False) + "\n" + json.dumps({key: value}) + "\n")
+    case.instructions["search-module"] += value + "\n"
+    text = errors_of(case)
+    assert "eval-queries.jsonl line 2 string 1" in text
+    assert key not in text and value not in text and SECRET not in text
+
+
+@pytest.mark.parametrize("value", [True, 1.0, "1"])
+def test_f5_spec_plan_version_must_be_the_same_integer(case, value):
+    case.specs["search-module"]["plan_version"] = value
+    assert "search-module: spec plan_version does not match the plan" in errors_of(case)
+
+
+def test_u1_file_deliverable_does_not_cover_paths_below_it(case):
+    write(case.checks / "nested-v1.json", {"check_id": "nested-v1", "kind": "command", "validator_version": "1",
+                                           "command": ["{python}", "-c", "pass"],
+                                           "required_artifacts": ["ex/methods/a.py/nested.json"]})
+    case.specs["search-module"]["checks"].append("nested-v1")
+    assert "check nested-v1 needs ex/methods/a.py/nested.json" in errors_of(case)
+
+
+def test_u2_leak_source_env_must_be_stripped_even_if_not_listed(case):
+    case.plan["private_env"] = []
+    case.config["environment"]["strip_env"] = []
+    assert "ORCH_VERIFIER_PRIVATE is not in config environment.strip_env" in errors_of(case)
+
+
+def test_u2_leak_source_env_must_be_declared_private(case):
+    case.plan["private_env"] = []
+    assert "leak_sources env ORCH_VERIFIER_PRIVATE must also be listed in private_env" in errors_of(case)
+
+
+def test_p5_follows_runtime_string_prefix_rule(case):
+    # workspace.check_scope would let "ex/methods" write into "ex/methods-extra/"
+    case.specs["search-module"]["allowed_write_paths"] = ["ex/methods"]
+    case.specs["experiment-runner"]["allowed_write_paths"] = ["ex/runner/", "ex/methods-extra/"]
+    assert "write path owned twice: ex/methods (search-module) and ex/methods-extra/" in errors_of(case)
+
+
+def test_p5_deliverable_case_must_match_runtime_scope(case):
+    case.specs["search-module"]["deliverables"] = ["EX/methods/a.py"]
+    assert "search-module: deliverable EX/methods/a.py is outside" in errors_of(case)
 
 
 # CLI

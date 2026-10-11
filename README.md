@@ -82,9 +82,18 @@ orch validate-plan runs/<run-id>/plan.v1.json --repo <target-repo> --config <con
 
 계획은 JSON이다. `schema_version`(1), `run_id`, `plan_version`, `base_commit`, `protocol_hash`(64자리 hex), `private_env`(작업자에게 넘기지 않을 환경 변수 이름), `leak_sources`(`{"env", "files"}`: 그 환경 변수가 가리키는 폴더의 비공개 JSON/JSONL 파일), `tasks`를 둔다. 실행 작업은 `{"task_id", "spec", "instructions"}`로 작업 명세와 지시문 파일을 계획 파일 폴더 기준 상대 경로로 가리킨다. 이미 끝난 작업은 `{"task_id", "status": "completed", "completed_commit", "deliverables"}`로 적고 실행하지 않는다.
 
-검사 항목: 계획 필드와 `TO_BE_` 미정 값(P1), task_id 고유와 명세·계획 값 일치(P2), 알려진 선행 작업만 참조하고 순환 없음(P3), 각 명세의 `validate` 통과(P4, `depends_on`만 계획 기준), 쓰기 경로 소유자 1명과 산출물이 자기 경로 안(P5), 작업에 붙은 command 검사의 `required_artifacts`를 그 작업이나 선행 작업이 만듦(P6), `private_env`가 `environment.strip_env`에 있음(P7), 비공개 파일의 8자 이상 문자열이 지시문·명세에 그대로 없음(P8), 지시문 파일이 읽히고 비어 있지 않음(P9).
+검사 항목:
+- P1 계획 필드, 그리고 계획·명세의 모든 키와 문자열 값, 지시문 어디에도 `TO_BE_`가 없다(문자열 중간 포함).
+- P2 task_id 고유(대소문자 무시). 명세의 `task_id`·`run_id`·`plan_version`·`base_commit`·`protocol_hash`가 계획과 타입까지 같다(`true`나 `1.0`은 `1`이 아니다).
+- P3 알려진 선행 작업만 참조하고 순환이 없다.
+- P4 각 명세가 `validate`를 통과한다(`depends_on`만 계획 기준).
+- P5 쓰기 경로 소유자는 1명이다. 실제 범위 검사(`workspace.check_scope`)가 문자열 접두로 판정하므로 `ex/m`과 `ex/methods-extra/`도 겹친다고 본다(대소문자 무시). 산출물은 자기 경로 안에 있어야 하고, 이 판정은 실제 검사처럼 대소문자를 구분한다.
+- P6 작업에 붙은 검사의 `required_artifacts`를 그 작업이나 선행 작업이 만든다. 산출물이 `/`로 끝나면 디렉터리로 보고 하위 경로까지 덮는다. 그 밖에는 그 파일 하나만 덮는다.
+- P7 `private_env`와 `leak_sources`의 환경 변수가 모두 `environment.strip_env`에 있고 `extra_env`에 없다. `leak_sources`의 변수는 `private_env`에도 적어야 한다.
+- P8 비공개 파일의 8자 이상 문자열 값이 지시문이나 명세의 키·값 하나 안에 그대로 없다.
+- P9 지시문 파일이 읽히고 비어 있지 않다.
 
-P8은 공백을 정규화한 문자열 일치만 본다. "q99의 정답은 d999" 같은 ID 대응이나 바꿔 쓴 표현은 잡지 못하므로 누출을 막는 장치가 아니라 사후 탐지다. 오류 메시지는 비공개 문자열 자체를 출력하지 않고 출처 파일과 위치만 적는다. P8을 돌리려면 검사하는 셸에 해당 환경 변수가 설정돼 있어야 하며, 없으면 통과가 아니라 "검사 불가" 오류다. `run-task`는 지금도 `depends_on`이 빈 명세만 받는다.
+P8은 공백을 정규화한 문자열 일치만 본다. 지시문은 파일 전체를, 명세는 키와 값을 하나씩 따로 본다(서로 다른 필드를 이어 붙여 비교하지 않는다). "q99의 정답은 d999" 같은 ID 대응이나 바꿔 쓴 표현은 잡지 못하므로 누출을 막는 장치가 아니라 사후 탐지다. 비공개 파일의 키는 `relevant_doc_ids` 같은 공개 형식 이름이라 비교 대상에서 뺀다. 오류 메시지는 비공개 파일 이름·행·순번만 적고, 비공개 파일의 값과 키는 출력하지 않는다. P8을 돌리려면 검사하는 셸에 해당 환경 변수가 설정돼 있어야 하며, 없으면 통과가 아니라 "검사 불가" 오류다. `run-task`는 지금도 `depends_on`이 빈 명세만 받는다.
 
 등록 검사가 정확한 결과 commit에 대해 모두 통과해야 작업을 채택한다. 결과 commit은 `refs/orchestrator/<attempt-id>`에 보존된다. 프로세스 종료를 확인하지 못하면 blocked 상태와 작업 공간을 보존한다. 검증 단계 중 `stop`은 busy를 반환하며, Ctrl+C에 의한 검증 자식 정리는 아직 검증하지 않았다.
 
