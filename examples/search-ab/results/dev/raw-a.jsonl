@@ -1,0 +1,10 @@
+{"method": "a", "query_id": "q01", "k": 3, "results": [{"rank": 1, "doc_id": "d001", "score": 4}, {"rank": 2, "doc_id": "d002", "score": 2}, {"rank": 3, "doc_id": "d004", "score": 2}]}
+{"method": "a", "query_id": "q02", "k": 3, "results": [{"rank": 1, "doc_id": "d007", "score": 3}, {"rank": 2, "doc_id": "d001", "score": 1}, {"rank": 3, "doc_id": "d002", "score": 1}]}
+{"method": "a", "query_id": "q03", "k": 3, "results": [{"rank": 1, "doc_id": "d012", "score": 3}, {"rank": 2, "doc_id": "d011", "score": 1}, {"rank": 3, "doc_id": "d013", "score": 1}]}
+{"method": "a", "query_id": "q04", "k": 3, "results": [{"rank": 1, "doc_id": "d018", "score": 4}, {"rank": 2, "doc_id": "d015", "score": 1}, {"rank": 3, "doc_id": "d028", "score": 1}]}
+{"method": "a", "query_id": "q05", "k": 3, "results": [{"rank": 1, "doc_id": "d021", "score": 2}, {"rank": 2, "doc_id": "d023", "score": 1}, {"rank": 3, "doc_id": "d024", "score": 1}]}
+{"method": "a", "query_id": "q06", "k": 3, "results": [{"rank": 1, "doc_id": "d026", "score": 1}, {"rank": 2, "doc_id": "d027", "score": 1}, {"rank": 3, "doc_id": "d028", "score": 1}]}
+{"method": "a", "query_id": "q07", "k": 3, "results": [{"rank": 1, "doc_id": "d009", "score": 2}, {"rank": 2, "doc_id": "d008", "score": 1}, {"rank": 3, "doc_id": "d010", "score": 1}]}
+{"method": "a", "query_id": "q08", "k": 3, "results": [{"rank": 1, "doc_id": "d001", "score": 1}, {"rank": 2, "doc_id": "d004", "score": 1}, {"rank": 3, "doc_id": "d019", "score": 1}]}
+{"method": "a", "query_id": "q09", "k": 3, "results": [{"rank": 1, "doc_id": "d013", "score": 2}, {"rank": 2, "doc_id": "d011", "score": 1}, {"rank": 3, "doc_id": "d012", "score": 1}]}
+{"method": "a", "query_id": "q10", "k": 3, "results": [{"rank": 1, "doc_id": "d004", "score": 2}, {"rank": 2, "doc_id": "d001", "score": 1}, {"rank": 3, "doc_id": "d002", "score": 1}]}
