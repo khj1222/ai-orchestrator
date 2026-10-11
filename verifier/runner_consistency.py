@@ -1,6 +1,5 @@
 """Execute the real runner and independently validate every output."""
 from datetime import datetime
-import json
 import math
 import os
 from pathlib import Path
@@ -19,26 +18,6 @@ else:
 OUTPUTS = {"raw-a.jsonl", "raw-b.jsonl", "latency.json", "summary.json", "report.md"}
 NOTICE = ("토큰화는 대소문자 정규화 후 공백 분리이며 한국어 형태소 분석을 하지 않았다. "
           "지연은 같은 환경의 반복 측정 중앙값이며 작은 자료의 차이를 일반화하지 않는다.")
-
-
-def publish_arg(argv):
-    """`--publish <dir>`: where to write the public aggregate after every comparison passed."""
-    if "--publish" not in argv:
-        return None
-    index = argv.index("--publish")
-    common.require(index + 1 < len(argv) and argv[index + 1], "--publish needs a directory")
-    return Path(argv[index + 1])
-
-
-def public_summary(summary, protocol_hash):
-    """Aggregates only: no query text, ID, relevant document, rank or score leaves this function."""
-    result = {"schema": "eval-summary-1", "k": summary["k"], "queries": summary["queries"],
-              "protocol_hash": protocol_hash}
-    for method in ("a", "b"):
-        row = summary[method]
-        result[method] = {"hit_at_3": row["hit_at_3"], "hits": row["hits"],
-                          "no_result_queries": row["no_result_queries"]}
-    return result
 
 
 def check_latency(value, count):
@@ -79,7 +58,6 @@ def check_report(text, stdout, summary, latency):
 
 
 def main():
-    publish = publish_arg(sys.argv[1:])
     private = common.private_dir()
     # Load the private oracle before importing or executing any candidate code.
     cases = common.load_cases()
@@ -148,12 +126,6 @@ def main():
             def call(query, docs, k):
                 return common.checked_call(module.search, query, docs, k, method, f"direct/{method}")
             common.compare(reference.raw_results(documents, queries, method, function=call), raw[method], f"direct/{method}")
-    if publish is not None:
-        # Reached only when every comparison above passed; actual == reference summary here.
-        publish.mkdir(parents=True, exist_ok=True)
-        (publish / "eval-summary.json").write_text(
-            json.dumps(public_summary(actual_summary, before["protocol_hash"]), ensure_ascii=False, sort_keys=True) + "\n",
-            encoding="utf-8", newline="\n")
     print(f"PASS: runner consistency, {len(queries)} queries (raw, direct calls, summary, report, hashes, latency)")
 
 

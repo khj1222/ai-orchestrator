@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import platform
 import re
@@ -63,7 +62,7 @@ class CheckDefinition:
     kind: str                                  # "command" | "scope"
     validator_version: str
     command_id: str
-    command: tuple[str, ...] = ()              # kind=command. "{python}", "{worktree}", "{publish}" 자리표시자 허용
+    command: tuple[str, ...] = ()              # kind=command. "{python}", "{worktree}" 자리표시자 허용
     cwd: str = "."                             # worktree 기준 상대 경로
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     required_artifacts: tuple[str, ...] = ()   # worktree 기준 상대 경로. 없으면 fail
@@ -207,94 +206,8 @@ def _is_within(path: Path, root: Path) -> bool:
         return False
 
 
-PUBLISH_DIR = "publish"   # evidence_dir/publish: 검사가 공개해도 되는 집계 파일만 쓰는 폴더(작업자에게 보이지 않음)
-PUBLISHED_FILE = "published.json"   # evidence_dir/published.json: 관리자가 검증해 다시 쓴 봉인 사본
-PUBLISH_NAME, PUBLISH_MAX_BYTES = "eval-summary.json", 4096
-_HEX64 = re.compile(r"[0-9a-f]{64}")
-
-
-class PublicationRejected(ValueError):
-    """공개 파일이 허용된 집계 형식이 아니다. 메시지는 사유 코드뿐이며 내용을 담지 않는다."""
-
-
-def _count(value, upper):
-    if type(value) is not int or not 0 <= value <= upper:
-        raise PublicationRejected("invalid_schema")
-    return value
-
-
-def validate_eval_summary(data) -> dict:
-    """eval-summary-1 의 정확한 형식만 받아, 검증한 값으로 새 dict 를 만든다.
-
-    검증 대상 코드는 검증기 프로세스 안에서 실행되므로 공개 폴더를 늦게 고칠 수 있다
-    (W13b Codex 검토 F1). 그래서 pass 판정이 아니라 이 함수가 공개 내용을 확정한다.
-    키 집합·자료형·범위·hit_at_3 == hits/queries 를 모두 요구하고 문자열은 schema 와
-    protocol_hash(64자리 hex)뿐이다.
-    """
-    if (type(data) is not dict or set(data) != {"schema", "k", "queries", "protocol_hash", "a", "b"}
-            or data["schema"] != "eval-summary-1"
-            or not (isinstance(data["protocol_hash"], str) and _HEX64.fullmatch(data["protocol_hash"]))):
-        raise PublicationRejected("invalid_schema")
-    k, queries = _count(data["k"], 100), _count(data["queries"], 100000)
-    if k < 1 or queries < 1:
-        raise PublicationRejected("invalid_schema")
-    result = {"schema": "eval-summary-1", "k": k, "queries": queries, "protocol_hash": data["protocol_hash"]}
-    for method in ("a", "b"):
-        row = data[method]
-        if type(row) is not dict or set(row) != {"hit_at_3", "hits", "no_result_queries"}:
-            raise PublicationRejected("invalid_schema")
-        hits, empty = _count(row["hits"], queries), _count(row["no_result_queries"], queries)
-        if type(row["hit_at_3"]) not in (int, float) or row["hit_at_3"] != hits / queries:
-            raise PublicationRejected("invalid_schema")
-        result[method] = {"hit_at_3": hits / queries, "hits": hits, "no_result_queries": empty}
-    return result
-
-
-def _seal_publication(publish: Path, evidence_dir: Path, evidence_root: Path, evidence: dict) -> None:
-    """검사 프로세스가 끝난 뒤 공개 폴더를 한 번 읽어 검증하고 봉인 사본을 쓴다."""
-    try:
-        entries = list(publish.iterdir())
-        if [p.name for p in entries] != [PUBLISH_NAME] or not entries[0].is_file() or entries[0].is_symlink():
-            raise PublicationRejected("unexpected_files")
-        raw = entries[0].read_bytes()
-        if len(raw) > PUBLISH_MAX_BYTES:
-            raise PublicationRejected("too_large")
-        try:
-            data = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise PublicationRejected("invalid_json") from None
-        sealed = json.dumps(validate_eval_summary(data), ensure_ascii=False, sort_keys=True) + "\n"
-    except PublicationRejected as error:
-        evidence["publish_rejected"] = str(error)
-        return
-    except OSError:
-        evidence["publish_rejected"] = "unreadable"
-        return
-    target = evidence_dir / PUBLISHED_FILE
-    target.write_text(sealed, encoding="utf-8", newline="\n")
-    evidence["published"] = _rel(target, evidence_root)
-    evidence["published_sha256"] = hashlib.sha256(sealed.encode("utf-8")).hexdigest()
-
-
-def read_publication(evidence_root: Path, evidence: dict) -> dict:
-    """봉인 사본을 다시 읽어 지문과 형식을 확인한다. 맞지 않으면 PublicationRejected."""
-    if "published" not in evidence or "published_sha256" not in evidence:
-        raise PublicationRejected("not_published")
-    try:
-        raw = (Path(evidence_root) / evidence["published"]).read_bytes()
-    except OSError:
-        raise PublicationRejected("unreadable") from None
-    if hashlib.sha256(raw).hexdigest() != evidence["published_sha256"]:
-        raise PublicationRejected("sealed_copy_changed")
-    try:
-        return validate_eval_summary(json.loads(raw.decode("utf-8")))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise PublicationRejected("invalid_json") from None
-
-
-def _expand(argument: str, worktree: Path, publish: Path | None = None) -> str:
-    argument = argument.replace("{python}", sys.executable).replace("{worktree}", str(worktree))
-    return argument.replace("{publish}", str(publish)) if publish is not None else argument
+def _expand(argument: str, worktree: Path) -> str:
+    return argument.replace("{python}", sys.executable).replace("{worktree}", str(worktree))
 
 
 def _is_cache_path(path: str, patterns: tuple[str, ...]) -> bool:
@@ -508,10 +421,7 @@ def _run_command_check(definition: CheckDefinition, worktree: Path, attempt_id: 
                            {"reason": REASON_MISSING_ARTIFACT,
                             "missing_artifacts": _rel(evidence_dir / "missing-artifacts.json", evidence_root)})
 
-    publish = evidence_dir / PUBLISH_DIR
-    if any("{publish}" in a for a in definition.command):
-        publish.mkdir(exist_ok=True)
-    argv = [_expand(a, worktree, publish) for a in definition.command]
+    argv = [_expand(a, worktree) for a in definition.command]
     cwd = worktree / definition.cwd
     stdout_path, stderr_path = evidence_dir / "stdout.bin", evidence_dir / "stderr.bin"
     started = _now()
@@ -552,10 +462,6 @@ def _run_command_check(definition: CheckDefinition, worktree: Path, attempt_id: 
     if exit_code != 0:
         evidence["reason"] = REASON_NONZERO_EXIT
         return _base_check(definition, attempt_id, subject_commit, manifest, "fail", exit_code, evidence)
-    # Published files count only for a passing check, and only as a validated, re-serialized
-    # copy sealed after the process exited; a failed check's output is never referenced.
-    if publish.is_dir() and any(publish.iterdir()):
-        _seal_publication(publish, evidence_dir, evidence_root, evidence)
     return _base_check(definition, attempt_id, subject_commit, manifest, "pass", 0, evidence)
 
 

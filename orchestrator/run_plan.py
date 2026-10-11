@@ -19,15 +19,16 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import MISSING, fields
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 
-from . import records, verify, workspace
+from . import records, workspace
 from .adapters.claude import ClaudeSpec
 from .adapters.codex import CodexSpec
 from .cli import (EXIT_CODES, CLIError, RunStore, _attempt_loop, _git, _lock, _read, _ready,
                   _recover, adapter_for, stop_task)
-from .plan import validate_plan
+from .plan import PublicationSourceError, read_publication_source, validate_plan
 
 MAX_PARALLEL = 2
 MERGE_IDENTITY = ("-c", "user.name=orchestrator", "-c", "user.email=orchestrator@localhost.invalid",
@@ -135,6 +136,7 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
     if not 1 <= parallel <= MAX_PARALLEL:
         raise CLIError(f"--parallel must be between 1 and {MAX_PARALLEL}")
     plan_path, repo = Path(plan_path).resolve(), Path(repo).resolve()
+    environ = os.environ if environ is None else environ
     errors, order = validate_plan(plan_path, config, checks_dir, environ=environ)
     if errors:
         print("\n".join(errors))
@@ -163,10 +165,16 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
                     plan_base_commit=plan["base_commit"], integration_ref=integrator.ref,
                     completed_tasks={t: e["completed_commit"] for t, e in entries.items() if "spec" not in e},
                     tasks={t: {} for t in executable}, merges=[])
+                if plan.get("publication"):
+                    # Pinned before any worker runs: the manager reads the private
+                    # expected summary itself; candidate code never produces these numbers.
+                    summary, digest, path = read_publication_source(plan["publication"], environ)
+                    run.summary["publication"] = {**plan["publication"], "path": path, "sha256": digest,
+                                                  "summary": summary}
             if run.state in {"completed", "failed", "cancelled"}:
                 # A finished run is never resumed, but its report is rebuilt from the
                 # records (W13b review U1); nothing missing is filled from the present.
-                _write_report(store, run, executable, integrator, specs)
+                _write_report(store, run, executable, integrator, specs, environ)
                 return {"completed": 0, "failed": 1, "cancelled": 3}[run.state]
             if run.state == "blocked":
                 store.move(run, run, "running")
@@ -238,7 +246,7 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
 
         with store.lock():
             code = _finish(store, executable, integrator)
-            _write_report(store, store.load(), executable, integrator, specs)
+            _write_report(store, store.load(), executable, integrator, specs, environ)
             return code
 
 
@@ -281,12 +289,14 @@ def _cli_version(config: dict, tool: str, config_dir: Path) -> str:
         return "unavailable"
 
 
-def _write_report(store: RunStore, run, executable: list[str], integrator: _Integrator, specs: dict) -> None:
+def _write_report(store: RunStore, run, executable: list[str], integrator: _Integrator, specs: dict,
+                  environ) -> None:
     """W13 concern 7: verdicts, attempts, merges, routes and the published evaluation
     aggregate in one place next to the run records (run-report.json / run-report.md)."""
     checks = records.load_checks(store.root, store.run_id)
     merges = {m["task_id"]: m for m in run.summary.get("merges", [])}
-    rows, published = [], None
+    pinned = run.summary.get("publication")
+    rows, gate = [], None
     for task_id in executable:
         task, scope = run.tasks[task_id], run.summary["tasks"][task_id]
         shown = task.accepted_attempt_id or (task.attempts[-1] if task.attempts else None)
@@ -299,31 +309,37 @@ def _write_report(store: RunStore, run, executable: list[str], integrator: _Inte
             "route": scope.get("route"), "cli_version": scope.get("cli_version"),
             "checks": [{"check_id": c.check_id, "verdict": c.verdict, "reason": c.evidence.get("reason")}
                        for c in verdicts]})
-        for c in verdicts:
-            if not (task.accepted_attempt_id and c.verdict == "pass"
-                    and ("published" in c.evidence or "publish_rejected" in c.evidence)):
-                continue
-            source = {"task_id": task_id, "check_id": c.check_id, "attempt_id": c.attempt_id,
-                      "subject_commit": c.subject_commit}
-            # Only the sealed copy written by verify is read, and only after its
-            # fingerprint and exact aggregate format are checked again (review F1).
-            try:
-                if "publish_rejected" in c.evidence:
-                    raise verify.PublicationRejected(c.evidence["publish_rejected"])
-                summary = verify.read_publication(
-                    store.directory / "attempts" / c.attempt_id / "evidence", c.evidence)
-                if summary["protocol_hash"] != specs[task_id]["protocol_hash"]:
-                    raise verify.PublicationRejected("protocol_hash_mismatch")
-                published = {**source, "eval_summary": summary}
-            except verify.PublicationRejected as error:
-                published = {**source, "rejected": str(error)}
+        for c in verdicts:  # the gate: the declared check passed on an accepted result
+            if pinned and task.accepted_attempt_id and c.check_id == pinned["check"] and c.verdict == "pass":
+                gate = {"task_id": task_id, "check_id": c.check_id, "attempt_id": c.attempt_id,
+                        "subject_commit": c.subject_commit}
     report = {"run_id": run.run_id, "state": run.state, "reason_code": run.reason_code,
               "integration_ref": integrator.ref, "integration_head": integrator.head(),  # review F2
               "plan_base_commit": run.summary.get("plan_base_commit"), "tasks": rows,
-              "evaluation": published}
+              "evaluation": _evaluation(pinned, gate, environ)}
     (store.directory / "run-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     (store.directory / "run-report.md").write_text(_render(report), encoding="utf-8", newline="\n")
+
+
+def _evaluation(pinned: dict | None, gate: dict | None, environ) -> dict | None:
+    """The published aggregate is the expected summary the manager pinned before the
+    run (W13b re-review R1). A passing gate check means the candidate's results equal
+    it; no number is ever read from a process that ran candidate code. Any doubt about
+    the source (moved, changed, unreadable) withholds the numbers."""
+    if pinned is None:
+        return None
+    result = {"source": "pinned expected summary", "check_id": pinned["check"]}
+    if gate is None:
+        return {**result, "withheld": "check_not_passed"}
+    result.update(gate)
+    try:
+        summary, digest, path = read_publication_source(pinned, environ)
+    except (PublicationSourceError, OSError) as error:
+        return {**result, "withheld": str(error) if isinstance(error, PublicationSourceError) else "unreadable"}
+    if digest != pinned["sha256"] or path != pinned["path"] or summary != pinned["summary"]:
+        return {**result, "withheld": "source_changed"}
+    return {**result, "eval_summary": summary}
 
 
 def _render(report: dict) -> str:
@@ -340,15 +356,16 @@ def _render(report: dict) -> str:
                      f"| `{(row['merge_commit'] or '-')[:12]}` | {route.get('tool', '-')} {route.get('model', '')} {effort} "
                      f"| {row['cli_version'] or '-'} | {checks} |")
     evaluation = report["evaluation"]
-    lines += ["", "## Evaluation queries (aggregate, published by the verifier after every comparison passed)", ""]
+    lines += ["", "## Evaluation queries (aggregate)", ""]
     if evaluation is None:
-        lines.append("Not available: no accepted check published an evaluation summary.")
-    elif "rejected" in evaluation:
-        lines.append(f"Rejected ({evaluation['rejected']}): the published file from `{evaluation['check_id']}` "
-                     "was not an exact evaluation aggregate, so nothing from it is shown.")
+        lines.append("Not published: the plan declares no publication.")
+    elif "withheld" in evaluation:
+        lines.append(f"Withheld ({evaluation['withheld']}): the numbers are shown only after `{evaluation['check_id']}` "
+                     "passed on an accepted result and the pinned expected summary is unchanged.")
     else:
         summary = evaluation["eval_summary"]
-        lines += [f"Source: `{evaluation['check_id']}` on `{evaluation['subject_commit'][:12]}` ({evaluation['task_id']}). "
+        lines += [f"Source: the expected summary pinned by the manager before the run, shown because "
+                  f"`{evaluation['check_id']}` passed on `{evaluation['subject_commit'][:12]}` ({evaluation['task_id']}). "
                   f"Queries: {summary['queries']}, k: {summary['k']}.", "",
                   "| method | hit@3 | hits/queries | no-result queries |", "|---|---|---|---|"]
         for method in ("a", "b"):

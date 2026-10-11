@@ -20,9 +20,7 @@ from orchestrator.verify import (
     REASON_TIMEOUT,
     REASON_WORKSPACE_UNAVAILABLE,
     CheckDefinitionError,
-    PublicationRejected,
     is_check_current,
-    read_publication,
     load_check_definition,
     run_checks,
     tree_hash,
@@ -314,74 +312,6 @@ def test_check_command_env_is_stripped_and_placeholders_expanded(repo, checks_di
                          for p in evidence.rglob("*.json"))
     assert "sk-secret-value-123" not in everything
     assert os.environ["ANTHROPIC_API_KEY"] == "sk-secret-value-123"
-
-
-SUMMARY = {"schema": "eval-summary-1", "k": 3, "queries": 20, "protocol_hash": "a" * 64,
-           "a": {"hit_at_3": 0.3, "hits": 6, "no_result_queries": 0},
-           "b": {"hit_at_3": 0.35, "hits": 7, "no_result_queries": 1}}
-PUBLISHER = ("import json,pathlib,sys; out=pathlib.Path(sys.argv[1]); assert out.is_dir(); "
-             "wt=pathlib.Path(sys.argv[2]).resolve(); assert wt not in out.resolve().parents; "
-             "files=json.loads(sys.argv[4]); "
-             "[(out/name).write_text(text, encoding='utf-8') for name, text in files.items()]; sys.exit(int(sys.argv[3]))")
-
-
-def publish_check(checks_dir, files, exit_code=0):
-    return define(checks_dir, "pub-v1", command=[PY, "-c", PUBLISHER, "{publish}", "{worktree}", str(exit_code),
-                                                 json.dumps(files)])
-
-
-@pytest.mark.parametrize("exit_code,published", [(0, True), (3, False)])
-def test_publish_placeholder_is_outside_worktree_and_counts_only_on_pass(repo, checks_dir, evidence,
-                                                                         exit_code, published):  # W13b
-    repo_path, base = repo
-    check_id = publish_check(checks_dir, {"eval-summary.json": json.dumps(SUMMARY)}, exit_code)
-    [check] = run_checks(repo_path, base, [check_id], checks_dir, evidence, "a").checks
-    assert check.verdict == ("pass" if exit_code == 0 else "fail")
-    assert ("published" in check.evidence) is published
-    if published:
-        assert read_publication(evidence, check.evidence) == SUMMARY
-
-
-# W13b Codex review F1: the content, not the pass verdict, decides what is published.
-@pytest.mark.parametrize("files,reason", [
-    ({"eval-summary.json": json.dumps(SUMMARY), "query-details.json": '{"text": "secret query"}'}, "unexpected_files"),
-    ({"eval-summary.json": json.dumps({**SUMMARY, "query_rows": [{"query_id": "q11"}]})}, "invalid_schema"),
-    ({"eval-summary.json": json.dumps({**SUMMARY, "a": {**SUMMARY["a"], "hit_at_3": {"text": "secret query"}}})},
-     "invalid_schema"),
-    ({"eval-summary.json": json.dumps({**SUMMARY, "a": {**SUMMARY["a"], "hit_at_3": 0.9}})}, "invalid_schema"),
-    ({"eval-summary.json": json.dumps({**SUMMARY, "protocol_hash": "secret query text"})}, "invalid_schema"),
-    ({"eval-summary.json": json.dumps({**SUMMARY, "a": {**SUMMARY["a"], "hits": True}})}, "invalid_schema"),
-    ({"eval-summary.json": "not json"}, "invalid_json"),
-    ({"eval-summary.json": json.dumps(SUMMARY) + " " * 5000}, "too_large"),
-])
-def test_publication_must_be_exact_aggregate(repo, checks_dir, evidence, files, reason):
-    repo_path, base = repo
-    [check] = run_checks(repo_path, base, [publish_check(checks_dir, files)], checks_dir, evidence, "a").checks
-    assert check.verdict == "pass"  # the verdict rule is unchanged
-    assert "published" not in check.evidence and check.evidence["publish_rejected"] == reason
-    assert "secret" not in json.dumps(check.evidence)
-
-
-def test_sealed_copy_ignores_later_writes_and_detects_tampering(repo, checks_dir, evidence):
-    repo_path, base = repo
-    check_id = publish_check(checks_dir, {"eval-summary.json": json.dumps(SUMMARY)})
-    [check] = run_checks(repo_path, base, [check_id], checks_dir, evidence, "a").checks
-    publish = evidence / "checks" / "pub-v1" / "publish"
-    (publish / "eval-summary.json").write_text(json.dumps({**SUMMARY, "text": "late secret"}), encoding="utf-8")
-    (publish / "query-details.json").write_text("late secret", encoding="utf-8")
-    assert read_publication(evidence, check.evidence) == SUMMARY  # sealed before, unaffected
-    sealed = evidence / check.evidence["published"]
-    sealed.write_text(sealed.read_text(encoding="utf-8").replace("0.3", "0.30"), encoding="utf-8")
-    with pytest.raises(PublicationRejected, match="sealed_copy_changed"):
-        read_publication(evidence, check.evidence)
-
-
-def test_no_publish_folder_without_placeholder(repo, checks_dir, evidence):  # W13b
-    repo_path, base = repo
-    check_id = define(checks_dir, "plain-v1", command=[PY, "-c", "pass"])
-    [check] = run_checks(repo_path, base, [check_id], checks_dir, evidence, "a").checks
-    assert check.verdict == "pass" and "published" not in check.evidence
-    assert not (evidence / "checks" / "plain-v1" / "publish").exists()
 
 
 def test_cwd_field_is_relative_to_worktree(repo, checks_dir, evidence):

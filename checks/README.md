@@ -25,7 +25,7 @@
 
 | 필드 | 뜻 |
 |---|---|
-| `command` | argv 리스트. 셸 없이 실행한다. `{python}`은 검증기의 `sys.executable`, `{worktree}`는 검증 worktree 절대 경로로 바뀐다. `{publish}`는 그 검사의 증거 폴더 안 `publish/` 경로로 바뀐다(작업자에게 보이지 않는다. 검사가 pass이면 프로세스가 끝난 뒤 실행기가 그 폴더를 한 번 읽어, 파일이 `eval-summary.json` 하나이고 형식이 정확한 평가 집계(eval-summary-1)일 때만 검증한 값으로 다시 쓴 봉인 사본 `published.json`과 sha256을 판정 기록에 남긴다. 아니면 사유 코드만 `publish_rejected`로 남긴다. 검증 대상 코드가 검증기 프로세스 안에서 돌기 때문에 pass 판정만으로는 공개 내용을 믿지 않는다). 절대 경로를 적지 않는다 |
+| `command` | argv 리스트. 셸 없이 실행한다. `{python}`은 검증기의 `sys.executable`, `{worktree}`는 검증 worktree 절대 경로로 바뀐다. 절대 경로를 적지 않는다 |
 | `cwd` | worktree 기준 상대 경로. 기본 `.` |
 | `timeout_seconds` | 초과하면 프로세스 트리를 종료하고 **undecidable** |
 | `required_artifacts` | worktree 기준 상대 경로. 하나라도 없으면 명령을 돌리지 않고 **fail** (`missing_artifact`) |

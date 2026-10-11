@@ -1,9 +1,9 @@
 {
   "check_id": "runner-consistency-v1",
   "kind": "command",
-  "validator_version": "2",
+  "validator_version": "1",
   "command_id": "search-ab-runner-consistency",
-  "command": ["{python}", "-B", "{worktree}/verifier/runner_consistency.py", "--publish", "{publish}"],
+  "command": ["{python}", "-B", "{worktree}/verifier/runner_consistency.py"],
   "cwd": ".",
   "timeout_seconds": 240,
   "required_artifacts": ["examples/search-ab/methods/a.py", "examples/search-ab/methods/b.py", "examples/search-ab/runner/run.py"]
