@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "run_id": "pilot-001-mixed",
+  "task_id": "integrate",
+  "plan_version": 1,
+  "goal": "search-module 과 experiment-runner 가 통합된 저장소에서 실행기로 개발용 자료(data/dev) 실험을 2회 완주해 examples/search-ab/results/ 에 산출물과 재현 비교 기록(INTEGRATION.md)을 남긴다. 코드는 고치지 않는다",
+  "depends_on": ["search-module", "experiment-runner"],
+  "base_commit": "ce22a70ccad5f518e74c85228f294690e1386710",
+  "protocol_hash": "ea86373c26e72d61f9ca6a15e5636ea96e8496d0c3c2bd0e6bbc1a21e512b624",
+  "allowed_write_paths": [
+    "examples/search-ab/results/"
+  ],
+  "deliverables": [
+    "examples/search-ab/results/INTEGRATION.md",
+    "examples/search-ab/results/dev/raw-a.jsonl",
+    "examples/search-ab/results/dev/raw-b.jsonl",
+    "examples/search-ab/results/dev/latency.json",
+    "examples/search-ab/results/dev/summary.json",
+    "examples/search-ab/results/dev/report.md",
+    "examples/search-ab/results/dev/manifest.json",
+    "examples/search-ab/results/dev-rerun/raw-a.jsonl",
+    "examples/search-ab/results/dev-rerun/raw-b.jsonl",
+    "examples/search-ab/results/dev-rerun/latency.json",
+    "examples/search-ab/results/dev-rerun/summary.json",
+    "examples/search-ab/results/dev-rerun/report.md",
+    "examples/search-ab/results/dev-rerun/manifest.json"
+  ],
+  "checks": ["interface-contract-v1", "method-behavior-v1", "runner-consistency-v1", "allowed-changes-v1"],
+  "route_id": "codex-default",
+  "limits": {
+    "timeout_seconds": 3600,
+    "max_attempts_total": 2,
+    "paid_api_allowed": false
+  }
+}
