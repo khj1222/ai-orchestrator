@@ -253,6 +253,74 @@ def test_integration_failure_blocks_run(case, monkeypatch, capsys):
     assert loaded(case).state == "completed"
 
 
+# Codex review 2026-10-11 (reviews/W10c-codex-review.md), regressions F1-F3
+def test_f1_later_task_accepted_first_waits_for_plan_order(case):
+    case.specs["alpha"]["route_id"] = "slow"  # alpha finishes after beta
+    assert run(case, "--parallel", "2") == 0
+    run_ = loaded(case)
+    assert [m["task_id"] for m in run_.summary["merges"]] == ["alpha", "beta", "gamma"]
+    head = run_.summary["integration_head"]
+    second_parents = [line.split()[2] for line in
+                      git(case.repo, "rev-list", "--first-parent", "--parents", "--reverse",
+                          f"{case.base}..{head}").splitlines()]
+    assert second_parents == [m["subject_commit"] for m in run_.summary["merges"]]
+    alpha_end = float(git(case.repo, "show", f"{head}:alpha/out.txt").splitlines()[2].split("=")[1])
+    beta_end = float(git(case.repo, "show", f"{head}:beta/out.txt").splitlines()[2].split("=")[1])
+    assert beta_end < alpha_end  # the order held although beta was accepted first
+
+
+def test_f2_blocked_task_halts_new_starts_before_its_thread_returns(case, monkeypatch):
+    from orchestrator import run_plan
+    import time
+
+    write(case.checks / "hang.json", {"check_id": "hang", "validator_version": "1", "timeout_seconds": 1,
+                                      "command": ["{python}", "-c", "import time; time.sleep(30)"]})
+    case.specs["alpha"]["checks"] = ["hang"]  # undecidable -> blocked(verification_undecidable)
+    case.specs["delta"] = dict(case.specs["beta"], task_id="delta", allowed_write_paths=["delta/"],
+                               deliverables=["delta/out.txt"], checks=["scope"])
+    case.instructions["delta"] = "# delta\n"
+    case.plan["tasks"].append({"task_id": "delta", "spec": "tasks/delta.json",
+                               "instructions": "instructions/delta.md"})
+    real = run_plan._attempt_loop
+
+    def slow_to_return(store, spec, *args, **kwargs):
+        if spec["task_id"] == "beta":  # finish only inside alpha's window below
+            deadline = time.monotonic() + 60
+            while records.load_run("pilot", case.root).tasks["alpha"].state != "blocked":
+                assert time.monotonic() < deadline
+                time.sleep(0.05)
+        code = real(store, spec, *args, **kwargs)
+        if spec["task_id"] == "alpha":
+            time.sleep(6)  # record says blocked; thread not finished yet
+        return code
+
+    monkeypatch.setattr(run_plan, "_attempt_loop", slow_to_return)
+    assert run(case, "--parallel", "2") == 2
+    run_ = loaded(case)
+    assert run_.tasks["alpha"].state == "blocked"
+    assert run_.tasks["beta"].state == "accepted"  # finished, but waits behind alpha (F1)
+    assert run_.summary["merges"] == []
+    assert run_.tasks["delta"].state == "planned" and not run_.tasks["delta"].attempts
+
+
+def test_f3_bytes_moved_across_file_boundary_are_refused(case, capsys):
+    case.specs["alpha"]["route_id"] = "fail-always"
+    assert run(case) == 1
+    recorded = loaded(case).summary["plan_files"]
+    assert set(recorded) == {"plan.v1.json", "tasks/alpha.json", "tasks/beta.json", "tasks/gamma.json",
+                             "instructions/alpha.md", "instructions/beta.md", "instructions/gamma.md"}
+    # instructions/alpha.md and tasks/beta.json are neighbours in file order: move one LF across.
+    alpha_md, beta_json = case.plan_dir / "instructions/alpha.md", case.plan_dir / "tasks/beta.json"
+    assert alpha_md.read_bytes().endswith(b"\n")
+    alpha_md.write_bytes(alpha_md.read_bytes()[:-1])
+    beta_json.write_bytes(b"\n" + beta_json.read_bytes())  # still the same JSON
+    capsys.readouterr()
+    code = cli.main(["run-plan", str(case.plan_dir / "plan.v1.json"), "--repo", str(case.repo), "--config",
+                     str(case.tmp / "config.json"), "--checks-dir", str(case.checks), "--run-root",
+                     str(case.root)], adapter_factory=factory)
+    assert code == 1 and "use a new run_id" in capsys.readouterr().out
+
+
 def test_run_task_still_terminal_on_failed_check(case):
     spec = dict(case.specs["alpha"], depends_on=[], route_id="fail-once", run_id="single")
     write(case.tmp / "single.json", spec)

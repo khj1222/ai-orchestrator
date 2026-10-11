@@ -3,7 +3,7 @@
 Each executable task runs through the same attempt loop as run-task (W7). A task
 starts from the integration line once all of its prerequisites are integrated,
 and that commit is also its scope-check base. Accepted results are merged one at
-a time with --no-ff into refs/orchestrator/runs/<run_id>/integration inside a
+a time, in execution order, with --no-ff into refs/orchestrator/runs/<run_id>/integration inside a
 worktree under the run folder; the user's checkout and main are never touched.
 
 Completed plan tasks are not turned into Task records; they are listed in
@@ -36,14 +36,16 @@ def integration_ref(run_id: str) -> str:
     return f"refs/orchestrator/runs/{run_id}/integration"
 
 
-def _fingerprint(plan_path: Path, plan: dict) -> str:
-    digest = hashlib.sha256()
-    digest.update(plan_path.read_bytes())
+def _plan_files(plan_path: Path, plan: dict) -> dict[str, str]:
+    """Relative path -> sha256 for the plan and every spec and instruction file.
+    One hash per file, so moving bytes across a file boundary changes the record."""
+    files = {plan_path.name: hashlib.sha256(plan_path.read_bytes()).hexdigest()}
     for entry in plan["tasks"]:
         for key in ("spec", "instructions"):
             if key in entry:
-                digest.update((plan_path.parent / entry[key]).read_bytes())
-    return digest.hexdigest()
+                files[entry[key].replace("\\", "/")] = hashlib.sha256(
+                    (plan_path.parent / entry[key]).read_bytes()).hexdigest()
+    return files
 
 
 def _prompt(instructions: str, spec: dict):
@@ -114,20 +116,20 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
              for t, e in entries.items() if "instructions" in e}
     executable = [t for t in order if t in specs]
     store = RunStore(root, plan["run_id"])
-    fingerprint = _fingerprint(plan_path, plan)
+    plan_files = _plan_files(plan_path, plan)
     integrator = _Integrator(store, repo, plan["base_commit"])
 
     with _lock(store.directory / ".runner.lock", timeout=0):
         with store.lock():
             if (store.directory / "summary.json").exists():
                 run = store.load()
-                if run.summary.get("plan_fingerprint") != fingerprint or set(run.tasks) != set(executable):
+                if run.summary.get("plan_files") != plan_files or set(run.tasks) != set(executable):
                     raise CLIError("plan, specifications or instructions changed; use a new run_id")
             else:
                 run = records.Run(plan["run_id"], str(plan["plan_version"]),
                                   tasks={t: records.Task(t, str(plan["plan_version"])) for t in executable})
                 run.summary.update(
-                    plan_fingerprint=fingerprint, plan=str(plan_path), repo=str(repo),
+                    plan_files=plan_files, plan=str(plan_path), repo=str(repo),
                     plan_base_commit=plan["base_commit"], integration_ref=integrator.ref,
                     completed_tasks={t: e["completed_commit"] for t, e in entries.items() if "spec" not in e},
                     tasks={t: {} for t in executable}, merges=[])
@@ -155,7 +157,7 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
                                  retry_on_fail=True)
 
         running: dict = {}
-        finished_here: set[str] = set()
+        started_here: set[str] = set()
         with ThreadPoolExecutor(max_workers=parallel) as pool:
             try:
                 while True:
@@ -164,10 +166,12 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
                         if run.state == "running":
                             _integrate_accepted(store, run, integrator, executable)
                         states = {t: run.tasks[t].state for t in executable}
-                        # A task blocked before this invocation may restart (W7 rerun rule);
-                        # one that stopped during it halts new starts.
+                        # A task blocked before this invocation may restart (W7 rerun rule).
+                        # One started here halts new starts as soon as its record says
+                        # blocked, even before its thread returns. The retry path passes
+                        # through blocked only inside one locked section, so it is never seen.
                         halted = (run.state != "running" or any(
-                            states[t] in {"failed", "cancelled"} or (states[t] == "blocked" and t in finished_here)
+                            states[t] in {"failed", "cancelled"} or (states[t] == "blocked" and t in started_here)
                             for t in executable))
                         if all(s in DONE for s in states.values()):
                             break
@@ -180,12 +184,13 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
                                         and all(states.get(d) in DONE or d in run.summary["completed_tasks"]
                                                 for d in prerequisites)):
                                     base = integrator.head()
+                                    started_here.add(task_id)
                                     running[pool.submit(execute, task_id, base)] = task_id
                     if not running:
                         break
                     finished, _ = wait(running, return_when=FIRST_COMPLETED)
                     for future in finished:
-                        finished_here.add(running.pop(future))
+                        running.pop(future)
                         future.result()  # surface programming errors
             except KeyboardInterrupt:
                 for task_id in list(running.values()):
@@ -216,10 +221,15 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
 
 
 def _integrate_accepted(store: RunStore, run, integrator: _Integrator, executable: list[str]) -> None:
-    for task_id in executable:  # plan order keeps merges deterministic
+    for task_id in executable:
+        # Merges follow the validated execution order. A later result accepted first
+        # waits (stays accepted) until every earlier task is integrated; if an earlier
+        # task fails, it is never merged in this run.
         task = run.tasks[task_id]
-        if task.state != "accepted":
+        if task.state == "integrated":
             continue
+        if task.state != "accepted":
+            return
         attempt = run.attempts[task.accepted_attempt_id]
         subject = json.loads(Path(attempt.result_manifest).read_text(encoding="utf-8"))["subject_commit"]
         try:
@@ -229,7 +239,7 @@ def _integrate_accepted(store: RunStore, run, integrator: _Integrator, executabl
             store.save(run)
             if run.state == "running":
                 store.move(run, run, "blocked", "integration_conflict")
-            continue
+            return
         run.summary["merges"].append({"task_id": task_id, "attempt_id": attempt.attempt_id,
                                       "subject_commit": subject, "merge_commit": merged})
         store.move(run, task, "integrated")
