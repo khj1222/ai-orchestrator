@@ -16,12 +16,15 @@ Ctrl+C and stop are covered only as far as W7 covers them for one attempt.
 from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from dataclasses import MISSING, fields
 import hashlib
 import json
 from pathlib import Path
 import subprocess
 
-from . import records, workspace
+from . import records, verify, workspace
+from .adapters.claude import ClaudeSpec
+from .adapters.codex import CodexSpec
 from .cli import (EXIT_CODES, CLIError, RunStore, _attempt_loop, _git, _lock, _read, _ready,
                   _recover, adapter_for, stop_task)
 from .plan import validate_plan
@@ -30,7 +33,28 @@ MAX_PARALLEL = 2
 MERGE_IDENTITY = ("-c", "user.name=orchestrator", "-c", "user.email=orchestrator@localhost.invalid",
                   "-c", "commit.gpgsign=false")
 DONE = {"integrated"}
-ROUTE_KEYS = ("tool", "model", "effort", "model_reasoning_effort", "sandbox", "permission_mode")
+
+
+def _resolved_route(route: dict) -> dict:
+    """The execution settings the adapter actually uses: configured values, else the
+    CodexSpec/ClaudeSpec defaults (W13b Codex review F3). An effort left to the CLI's own
+    default is recorded as "cli-default" because its value is not known here."""
+    tool = route["tool"]
+    spec_type = CodexSpec if tool == "codex" else ClaudeSpec
+    defaults = {f.name: f.default for f in fields(spec_type) if f.default is not MISSING}
+    keys = ("sandbox", "approve_for_me") if tool == "codex" else ("permission_mode",)
+    effort = route.get("effort", route.get("model_reasoning_effort"))
+    resolved = {"tool": tool, "model": route.get("model"),
+                "effort": effort if effort is not None else "cli-default"}
+    applied = []
+    for key in keys:
+        if key in route:
+            resolved[key] = route[key]
+        else:
+            resolved[key] = defaults[key]
+            applied.append(key)
+    resolved["defaults_applied"] = applied
+    return resolved
 
 
 def integration_ref(run_id: str) -> str:
@@ -140,6 +164,9 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
                     completed_tasks={t: e["completed_commit"] for t, e in entries.items() if "spec" not in e},
                     tasks={t: {} for t in executable}, merges=[])
             if run.state in {"completed", "failed", "cancelled"}:
+                # A finished run is never resumed, but its report is rebuilt from the
+                # records (W13b review U1); nothing missing is filled from the present.
+                _write_report(store, run, executable, integrator, specs)
                 return {"completed": 0, "failed": 1, "cancelled": 3}[run.state]
             if run.state == "blocked":
                 store.move(run, run, "running")
@@ -160,7 +187,7 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
                 run = store.load()
                 # W13 concern 5: what actually ran, not only the route ID.
                 scope = run.summary["tasks"][task_id]
-                scope["route"] = {k: route[k] for k in ROUTE_KEYS if k in route}
+                scope["route"] = _resolved_route(route)
                 scope["cli_version"] = version
                 _ready(store, run, run.tasks[task_id])
             return _attempt_loop(store, spec, config, repo, checks_dir, config_dir, adapter_factory,
@@ -211,7 +238,7 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
 
         with store.lock():
             code = _finish(store, executable, integrator)
-            _write_report(store, store.load(), executable, integrator.ref, specs)
+            _write_report(store, store.load(), executable, integrator, specs)
             return code
 
 
@@ -254,7 +281,7 @@ def _cli_version(config: dict, tool: str, config_dir: Path) -> str:
         return "unavailable"
 
 
-def _write_report(store: RunStore, run, executable: list[str], ref: str, specs: dict) -> None:
+def _write_report(store: RunStore, run, executable: list[str], integrator: _Integrator, specs: dict) -> None:
     """W13 concern 7: verdicts, attempts, merges, routes and the published evaluation
     aggregate in one place next to the run records (run-report.json / run-report.md)."""
     checks = records.load_checks(store.root, store.run_id)
@@ -273,15 +300,25 @@ def _write_report(store: RunStore, run, executable: list[str], ref: str, specs: 
             "checks": [{"check_id": c.check_id, "verdict": c.verdict, "reason": c.evidence.get("reason")}
                        for c in verdicts]})
         for c in verdicts:
-            if task.accepted_attempt_id and c.verdict == "pass" and c.evidence.get("published"):
-                folder = store.directory / "attempts" / c.attempt_id / "evidence" / c.evidence["published"]
-                summary = folder / "eval-summary.json"
-                if summary.is_file():
-                    published = {"task_id": task_id, "check_id": c.check_id, "attempt_id": c.attempt_id,
-                                 "subject_commit": c.subject_commit,
-                                 "eval_summary": json.loads(summary.read_text(encoding="utf-8"))}
+            if not (task.accepted_attempt_id and c.verdict == "pass"
+                    and ("published" in c.evidence or "publish_rejected" in c.evidence)):
+                continue
+            source = {"task_id": task_id, "check_id": c.check_id, "attempt_id": c.attempt_id,
+                      "subject_commit": c.subject_commit}
+            # Only the sealed copy written by verify is read, and only after its
+            # fingerprint and exact aggregate format are checked again (review F1).
+            try:
+                if "publish_rejected" in c.evidence:
+                    raise verify.PublicationRejected(c.evidence["publish_rejected"])
+                summary = verify.read_publication(
+                    store.directory / "attempts" / c.attempt_id / "evidence", c.evidence)
+                if summary["protocol_hash"] != specs[task_id]["protocol_hash"]:
+                    raise verify.PublicationRejected("protocol_hash_mismatch")
+                published = {**source, "eval_summary": summary}
+            except verify.PublicationRejected as error:
+                published = {**source, "rejected": str(error)}
     report = {"run_id": run.run_id, "state": run.state, "reason_code": run.reason_code,
-              "integration_ref": ref, "integration_head": run.summary.get("integration_head"),
+              "integration_ref": integrator.ref, "integration_head": integrator.head(),  # review F2
               "plan_base_commit": run.summary.get("plan_base_commit"), "tasks": rows,
               "evaluation": published}
     (store.directory / "run-report.json").write_text(
@@ -306,6 +343,9 @@ def _render(report: dict) -> str:
     lines += ["", "## Evaluation queries (aggregate, published by the verifier after every comparison passed)", ""]
     if evaluation is None:
         lines.append("Not available: no accepted check published an evaluation summary.")
+    elif "rejected" in evaluation:
+        lines.append(f"Rejected ({evaluation['rejected']}): the published file from `{evaluation['check_id']}` "
+                     "was not an exact evaluation aggregate, so nothing from it is shown.")
     else:
         summary = evaluation["eval_summary"]
         lines += [f"Source: `{evaluation['check_id']}` on `{evaluation['subject_commit'][:12]}` ({evaluation['task_id']}). "

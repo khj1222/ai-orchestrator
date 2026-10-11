@@ -322,6 +322,17 @@ def test_f3_bytes_moved_across_file_boundary_are_refused(case, capsys):
 
 
 # W13b (W13 final review concerns 4, 5, 7)
+EVAL = {"schema": "eval-summary-1", "k": 3, "queries": 20, "protocol_hash": HASH,
+        "a": {"hit_at_3": 0.5, "hits": 10, "no_result_queries": 0},
+        "b": {"hit_at_3": 0.6, "hits": 12, "no_result_queries": 1}}
+
+
+def add_publisher(case, files):
+    code = ("import json,pathlib,sys; out=pathlib.Path(sys.argv[1]); "
+            "[(out/n).write_text(t, encoding='utf-8') for n, t in json.loads(sys.argv[2]).items()]")
+    write(case.checks / "publisher.json", {"check_id": "publisher", "validator_version": "1",
+                                           "command": ["{python}", "-c", code, "{publish}", json.dumps(files)]})
+    case.specs["gamma"]["checks"].append("publisher")
 def test_prompt_carries_full_task_specification(case):
     assert run(case) == 0
     text = prompt_of(case, loaded(case), "gamma")
@@ -336,9 +347,19 @@ def test_route_and_cli_version_are_recorded(case):
     case.config["routes"]["ok"].update(model_reasoning_effort="high", sandbox="workspace-write")
     assert run(case) == 0
     scope = loaded(case).summary["tasks"]["alpha"]
-    assert scope["route"] == {"tool": "codex", "model": "ok", "model_reasoning_effort": "high",
-                              "sandbox": "workspace-write"}
+    assert scope["route"] == {"tool": "codex", "model": "ok", "effort": "high", "sandbox": "workspace-write",
+                              "approve_for_me": False, "defaults_applied": ["approve_for_me"]}
     assert scope["cli_version"].startswith("Python 3.")
+
+
+@pytest.mark.parametrize("tool,expected", [  # W13b Codex review F3: adapter defaults are recorded
+    ("codex", {"sandbox": "read-only", "approve_for_me": False, "defaults_applied": ["sandbox", "approve_for_me"]}),
+    ("claude", {"permission_mode": "acceptEdits", "defaults_applied": ["permission_mode"]}),
+])
+def test_resolved_route_includes_adapter_defaults(tool, expected):
+    from orchestrator.run_plan import _resolved_route
+    assert _resolved_route({"tool": tool, "model": "m"}) == {"tool": tool, "model": "m", "effort": "cli-default",
+                                                              **expected}
 
 
 def test_unavailable_cli_version_does_not_fail_the_run(case):
@@ -347,12 +368,7 @@ def test_unavailable_cli_version_does_not_fail_the_run(case):
 
 
 def test_run_report_lists_verdicts_merges_and_published_evaluation(case):
-    code = ("import json,pathlib,sys; out=pathlib.Path(sys.argv[1]); (out/'eval-summary.json').write_text(json.dumps("
-            "{'schema':'eval-summary-1','k':3,'queries':20,'protocol_hash':'x','a':{'hit_at_3':0.5,'hits':10,"
-            "'no_result_queries':0},'b':{'hit_at_3':0.6,'hits':12,'no_result_queries':1}}))")
-    write(case.checks / "publisher.json", {"check_id": "publisher", "validator_version": "1",
-                                           "command": ["{python}", "-c", code, "{publish}"]})
-    case.specs["gamma"]["checks"].append("publisher")
+    add_publisher(case, {"eval-summary.json": json.dumps(EVAL)})
     assert run(case) == 0
     report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
     assert report["state"] == "completed" and report["integration_head"] == loaded(case).summary["integration_head"]
@@ -364,6 +380,43 @@ def test_run_report_lists_verdicts_merges_and_published_evaluation(case):
     assert report["evaluation"]["eval_summary"]["b"]["hit_at_3"] == 0.6
     text = (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
     assert "| B | 0.6 | 12/20 | 1 |" in text and "gamma-out pass" in text
+
+
+@pytest.mark.parametrize("files,reason", [  # W13b Codex review F1
+    ({"eval-summary.json": json.dumps(EVAL), "query-details.json": "QUERY-MARKER q99 d999"}, "unexpected_files"),
+    ({"eval-summary.json": json.dumps({**EVAL, "a": {**EVAL["a"], "hit_at_3": "QUERY-MARKER"}})}, "invalid_schema"),
+    ({"eval-summary.json": json.dumps({**EVAL, "query_rows": ["QUERY-MARKER"]})}, "invalid_schema"),
+    ({"eval-summary.json": json.dumps({**EVAL, "protocol_hash": "b" * 64})}, "protocol_hash_mismatch"),
+])
+def test_run_report_shows_nothing_from_a_rejected_publication(case, files, reason):
+    add_publisher(case, files)
+    assert run(case) == 0
+    report_json = (case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8")
+    report_md = (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+    assert json.loads(report_json)["evaluation"]["rejected"] == reason
+    for text in (report_json, report_md):
+        assert "QUERY-MARKER" not in text and "q99" not in text and "| A |" not in text
+
+
+def test_failed_run_report_shows_the_actual_integration_head(case):  # W13b Codex review F2
+    case.specs["beta"]["route_id"] = "fail-always"
+    assert run(case) == 1
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    head = git(case.repo, "rev-parse", integration_ref("pilot"))
+    assert head != case.base and report["integration_head"] == head
+    assert f"= `{head}`" in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+
+
+def test_report_is_rebuilt_for_a_finished_run_without_rerunning(case):  # W13b Codex review U1
+    assert run(case) == 0
+    before = loaded(case)
+    for name in ("run-report.json", "run-report.md"):
+        (case.root / "runs/pilot" / name).unlink()
+    assert run(case) == 0
+    after = loaded(case)
+    assert {t: after.tasks[t].attempts for t in case.specs} == {t: before.tasks[t].attempts for t in case.specs}
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    assert report["state"] == "completed" and report["integration_head"] == before.summary["integration_head"]
 
 
 def test_run_report_without_evaluation_and_on_failure(case):
