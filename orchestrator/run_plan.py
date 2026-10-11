@@ -137,6 +137,9 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
         raise CLIError(f"--parallel must be between 1 and {MAX_PARALLEL}")
     plan_path, repo = Path(plan_path).resolve(), Path(repo).resolve()
     environ = os.environ if environ is None else environ
+    finished = _report_finished_run(plan_path, repo, root, environ)
+    if finished is not None:
+        return finished
     errors, order = validate_plan(plan_path, config, checks_dir, environ=environ)
     if errors:
         print("\n".join(errors))
@@ -170,7 +173,7 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
                     # expected summary itself; candidate code never produces these numbers.
                     summary, digest, path = read_publication_source(plan["publication"], environ)
                     run.summary["publication"] = {**plan["publication"], "path": path, "sha256": digest,
-                                                  "summary": summary}
+                                                  "summary": summary, "protocol_hash": plan["protocol_hash"]}
             if run.state in {"completed", "failed", "cancelled"}:
                 # A finished run is never resumed, but its report is rebuilt from the
                 # records (W13b review U1); nothing missing is filled from the present.
@@ -248,6 +251,34 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
             code = _finish(store, executable, integrator)
             _write_report(store, store.load(), executable, integrator, specs, environ)
             return code
+
+
+def _report_finished_run(plan_path: Path, repo: Path, root: Path, environ) -> int | None:
+    """A completed, failed or cancelled run is never resumed, but its report is rebuilt
+    from the records even when the plan would no longer validate, for example because
+    the publication source is gone (W13b re-review 2 F4); the report then withholds the
+    numbers. Returns None when this is not such a run, and the normal path validates."""
+    try:
+        plan = _read(plan_path)
+        entries = [e for e in plan["tasks"]]
+        specs = {e["task_id"]: _read(plan_path.parent / e["spec"]) for e in entries if "spec" in e}
+        store = RunStore(root, plan["run_id"])
+        plan_files = _plan_files(plan_path, plan)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, CLIError):
+        return None
+    if not (store.directory / "summary.json").is_file():
+        return None
+    integrator = _Integrator(store, repo, plan["base_commit"])
+    with _lock(store.directory / ".runner.lock", timeout=0), store.lock():
+        run = store.load()
+        if run.state not in {"completed", "failed", "cancelled"}:
+            return None
+        if run.summary.get("plan_files") != plan_files or set(run.tasks) != set(specs):
+            raise CLIError("plan, specifications or instructions changed; use a new run_id")
+        executable = [e["task_id"] for e in entries if e["task_id"] in specs]
+        _write_report(store, run, executable, integrator, specs, environ)
+        print(f"{run.run_id}: {run.state} (finished earlier; report rebuilt from the records)")
+        return {"completed": 0, "failed": 1, "cancelled": 3}[run.state]
 
 
 def _finish(store: RunStore, executable: list[str], integrator: _Integrator) -> int:
@@ -329,7 +360,8 @@ def _evaluation(pinned: dict | None, gate: dict | None, environ) -> dict | None:
     the source (moved, changed, unreadable) withholds the numbers."""
     if pinned is None:
         return None
-    result = {"source": "pinned expected summary", "check_id": pinned["check"]}
+    result = {"source": "pinned expected summary", "check_id": pinned["check"],
+              "protocol_hash": pinned.get("protocol_hash")}  # review 2 F5
     if gate is None:
         return {**result, "withheld": "check_not_passed"}
     result.update(gate)
@@ -359,7 +391,9 @@ def _render(report: dict) -> str:
     lines += ["", "## Evaluation queries (aggregate)", ""]
     if evaluation is None:
         lines.append("Not published: the plan declares no publication.")
-    elif "withheld" in evaluation:
+        return "\n".join(lines) + "\n"
+    lines += [f"protocol_hash: `{evaluation.get('protocol_hash') or 'not recorded'}`", ""]
+    if "withheld" in evaluation:
         lines.append(f"Withheld ({evaluation['withheld']}): the numbers are shown only after `{evaluation['check_id']}` "
                      "passed on an accepted result and the pinned expected summary is unchanged.")
     else:

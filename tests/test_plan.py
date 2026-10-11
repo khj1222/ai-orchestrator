@@ -296,6 +296,11 @@ def test_publication_source_must_be_an_exact_aggregate(case, summary, reason):
     assert f"publication source unusable: {reason}" in text and "q11" not in text
 
 
+def test_explicit_null_publication_is_an_error(case):  # W13b re-review 2 U2
+    case.plan["publication"] = None
+    assert "publication must be {env, file, check}" in errors_of(case)
+
+
 def test_publication_source_needs_the_private_env(case):
     with_publication(case)
     case.environ = {}

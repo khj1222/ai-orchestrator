@@ -431,6 +431,52 @@ def test_numbers_are_withheld_when_the_pinned_source_changed(case, monkeypatch):
     assert report["evaluation"]["withheld"] == "source_changed"
 
 
+@pytest.mark.parametrize("damage,reason", [  # W13b re-review 2 F4
+    ("delete", "source_missing"), ("not-json", "invalid_json"), ("extra-key", "invalid_summary"),
+    ("env-unset", "source_env_not_set"),
+])
+@pytest.mark.parametrize("report_kept", [True, False])
+def test_finished_run_report_withholds_when_the_source_is_unusable(case, monkeypatch, damage, reason, report_kept):
+    private = add_publication(case, monkeypatch)
+    assert run(case) == 0
+    before = loaded(case)
+    source = private / "eval-expected/summary.json"
+    if damage == "delete":
+        source.unlink()
+    elif damage == "not-json":
+        source.write_text("{not json", encoding="utf-8")
+    elif damage == "extra-key":
+        write(source, {**EXPECTED, "query_rows": ["q11"]})
+    else:
+        monkeypatch.delenv(TRUSTED_ENV)
+    if not report_kept:
+        for name in ("run-report.json", "run-report.md"):
+            (case.root / "runs/pilot" / name).unlink()
+    assert run(case) == 0  # finished run: report rebuilt, nothing restarted
+    after = loaded(case)
+    assert {t: after.tasks[t].attempts for t in case.specs} == {t: before.tasks[t].attempts for t in case.specs}
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    assert report["evaluation"]["withheld"] == reason and "eval_summary" not in report["evaluation"]
+    text = (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+    assert "| A |" not in text and "q11" not in text
+
+
+def test_evaluation_names_the_protocol_hash(case, monkeypatch):  # W13b re-review 2 F5
+    add_publication(case, monkeypatch, gate_command=("{python}", "-c", "raise SystemExit(3)"))
+    assert run(case) == 1
+    withheld = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))["evaluation"]
+    assert withheld["protocol_hash"] == HASH
+    assert f"protocol_hash: `{HASH}`" in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+
+
+def test_published_evaluation_names_the_protocol_hash(case, monkeypatch):  # W13b re-review 2 F5
+    add_publication(case, monkeypatch)
+    assert run(case) == 0
+    evaluation = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))["evaluation"]
+    assert evaluation["protocol_hash"] == HASH and evaluation["eval_summary"] == EXPECTED
+    assert f"protocol_hash: `{HASH}`" in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+
+
 def test_invalid_publication_source_starts_nothing(case, monkeypatch, capsys):
     add_publication(case, monkeypatch, expected={**EXPECTED, "queries": 65536})  # hit_at_3 no longer hits/queries
     assert run(case) == 1

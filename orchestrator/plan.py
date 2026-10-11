@@ -430,8 +430,9 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
             errors.append(f"{label}: contains a private string from {where}")
 
     # P10 publication: a trusted private source and a registered check that gates it
+    # Omitting the field means "no publication"; an explicit null is a declaration error (review 2 U2).
     publication = plan.get("publication")
-    if publication is not None:
+    if "publication" in plan:
         if (type(publication) is not dict or set(publication) != PUBLICATION_KEYS
                 or not _env_name(publication.get("env")) or not _relative(publication.get("file"))
                 or not _id(publication.get("check"))):
