@@ -50,7 +50,7 @@
 
 ### 2.3 확인할 점 (사람이 결정)
 
-- C1. `prepare-protocol` 의 `completed_commit` 은 지시대로 `a1eed74`(짧은 해시) 이다. protocol 정정은 그 뒤 `ce22a70` 에 들어갔으므로 `completed_commit` 의 protocol 과 계획의 `protocol_hash` 는 같은 상태가 아니다. 기록상 문제가 없는지, 또 짧은 해시를 그대로 둘지 확정한다.
+- C1. **(사람 검토로 수정됨, 아래 §10)** `prepare-protocol` 의 `completed_commit` 은 지시대로 `a1eed74`(짧은 해시) 이다. protocol 정정은 그 뒤 `ce22a70` 에 들어갔으므로 `completed_commit` 의 protocol 과 계획의 `protocol_hash` 는 같은 상태가 아니다. 기록상 문제가 없는지, 또 짧은 해시를 그대로 둘지 확정한다.
 - C2. (A4) integrate·report 의 `allowed-changes-v1` 은 기준을 `ce22a70` 으로 잡으면 선행 작업의 `methods/`·`runner/` 변경 때문에 반드시 fail 한다. 3단계 실행기가 의존 작업의 범위 검사 기준을 "통합된 선행 commit" 으로 잡는지 확인한다. 못 잡으면 두 작업에서 `allowed-changes-v1` 을 빼는 계획 v2 가 필요하다.
 - C3. (A1) `runner-consistency-v1` 이 커밋된 결과 파일을 특정 경로에서 읽는다면 그 경로를 알려 달라. 계획 v2 에서 integrate 의 `--out` 을 맞춘다.
 - C4. experiment-runner 단독 채택 근거가 `allowed-changes-v1` 하나다(§6.4 제안 1·2). 이대로 가는지, 검사를 먼저 추가하는지.
@@ -64,7 +64,7 @@
 
 | task_id | 상태/route | depends_on | allowed_write_paths | deliverables | checks |
 |---|---|---|---|---|---|
-| `prepare-protocol` | completed (`a1eed74`) | — | — | `examples/search-ab/protocol/`, `examples/search-ab/data/dev/` | — |
+| `prepare-protocol` | completed (`ce22a70`) | — | — | `examples/search-ab/protocol/`, `examples/search-ab/data/dev/` | — |
 | `search-module` | codex-default | prepare-protocol | `examples/search-ab/methods/`, `examples/search-ab/tests/unit/` | `methods/__init__.py`, `methods/a.py`, `methods/b.py`, `tests/unit/test_methods_search.py` | interface-contract-v1, method-behavior-v1, allowed-changes-v1 |
 | `experiment-runner` | codex-default | prepare-protocol | `examples/search-ab/runner/`, `examples/search-ab/tests/runner/` | `runner/__init__.py`, `runner/run.py`, `tests/runner/test_runner_run.py` | allowed-changes-v1 |
 | `integrate` | codex-default | search-module, experiment-runner | `examples/search-ab/results/` | `results/INTEGRATION.md`, `results/dev/` 6개, `results/dev-rerun/` 6개 (파일 13개 명시) | interface-contract-v1, method-behavior-v1, runner-consistency-v1, allowed-changes-v1 |
@@ -174,3 +174,12 @@ leak check impossible: ORCH_VERIFIER_PRIVATE is not set to a folder
 ```
 
 예상된 한 줄(P8 은 관리자가 환경 변수를 설정해 따로 돌린다) 외 오류 없음. 미정 표기 검색 0건. 모든 파일 UTF-8(BOM 없음), LF.
+
+## 10. 사람 검토 결정 (2026-10-11)
+
+확인표: 문서 폴더 `reviews/W10b-review-checklist.md`. 이 절은 Claude Code(관리자)가 사용자 답변을 받아 추가했다. 위 1~9절의 기획자 본문은 그대로 둔다.
+
+- **C1 수정 (사용자 결정):** `prepare-protocol` 의 `completed_commit` 을 protocol 정정 commit 의 전체 해시 `ce22a70ccad5f518e74c85228f294690e1386710` 로 바꿨다. 계획의 `protocol_hash` 와 같은 규격 상태다. 처음의 `a1eed74` 는 기획자 지시문의 오기였다.
+- **C2·C8 → W10c (사용자 동의):** 지금 `run-task` 는 `depends_on` 이 있는 명세를 거부하고, 의존 작업의 작업 공간·범위 검사 기준을 통합 commit 으로 잡지 못한다. W11 전에 코드 작업 W10c(계획 실행: 위상 순서 실행, 선행 결과 직렬 `--no-ff` 통합, 통합 commit 을 의존 작업의 기준으로)를 넣는다. 이 계획은 W10c 를 전제로 하며 수정하지 않는다.
+- **C3 해결:** 관리자가 검증기 코드로 확인했다. `runner-consistency-v1` 은 실행기를 임시 폴더에 스스로 돌려 비교하고, 커밋된 결과 파일을 읽지 않는다. 가정 A1 은 사실이다.
+- **C4~C7, C9:** 확인표의 관리자 의견(C4 v1 그대로, C5 유지, C6 계획 밖, C7 `git add -f` 로 커밋함, C9 동의)에 사용자가 이견을 밝히지 않았다. 명시 결정은 아니며, 바꾸려면 계획 v2 다.

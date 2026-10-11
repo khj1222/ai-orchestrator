@@ -12,7 +12,7 @@
     {
       "task_id": "prepare-protocol",
       "status": "completed",
-      "completed_commit": "a1eed74",
+      "completed_commit": "ce22a70ccad5f518e74c85228f294690e1386710",
       "deliverables": ["examples/search-ab/protocol/", "examples/search-ab/data/dev/"]
     },
     {
