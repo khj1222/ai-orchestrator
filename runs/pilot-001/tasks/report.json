@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "run_id": "pilot-001",
+  "task_id": "report",
+  "plan_version": 1,
+  "goal": "integrate 가 남긴 개발용 자료 실험 결과(results/dev, results/dev-rerun, INTEGRATION.md)를 숫자 변환 없이 옮겨 최종 보고서 examples/search-ab/report/REPORT.md 를 쓴다(설정·방법·결과 표·재현 확인·한계)",
+  "depends_on": ["integrate"],
+  "base_commit": "ce22a70ccad5f518e74c85228f294690e1386710",
+  "protocol_hash": "ea86373c26e72d61f9ca6a15e5636ea96e8496d0c3c2bd0e6bbc1a21e512b624",
+  "allowed_write_paths": [
+    "examples/search-ab/report/"
+  ],
+  "deliverables": [
+    "examples/search-ab/report/REPORT.md"
+  ],
+  "checks": ["interface-contract-v1", "method-behavior-v1", "runner-consistency-v1", "allowed-changes-v1"],
+  "route_id": "codex-default",
+  "limits": {
+    "timeout_seconds": 3600,
+    "max_attempts_total": 2,
+    "paid_api_allowed": false
+  }
+}

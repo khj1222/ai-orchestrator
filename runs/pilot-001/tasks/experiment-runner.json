@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "run_id": "pilot-001",
+  "task_id": "experiment-runner",
+  "plan_version": 1,
+  "goal": "protocol v1 의 raw-results.md 규격대로 실험 실행기 python -m runner.run 을 examples/search-ab/runner/ 에 구현한다(문서·질의 읽기, methods.a·b 호출, 원시 결과·지연·요약·보고서 표·manifest 저장)와 tests/runner/ 의 테스트. 검색 방법 자체는 구현하지 않는다",
+  "depends_on": ["prepare-protocol"],
+  "base_commit": "ce22a70ccad5f518e74c85228f294690e1386710",
+  "protocol_hash": "ea86373c26e72d61f9ca6a15e5636ea96e8496d0c3c2bd0e6bbc1a21e512b624",
+  "allowed_write_paths": [
+    "examples/search-ab/runner/",
+    "examples/search-ab/tests/runner/"
+  ],
+  "deliverables": [
+    "examples/search-ab/runner/__init__.py",
+    "examples/search-ab/runner/run.py",
+    "examples/search-ab/tests/runner/test_runner_run.py"
+  ],
+  "checks": ["allowed-changes-v1"],
+  "route_id": "codex-default",
+  "limits": {
+    "timeout_seconds": 3600,
+    "max_attempts_total": 2,
+    "paid_api_allowed": false
+  }
+}
