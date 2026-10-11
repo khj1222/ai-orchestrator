@@ -257,7 +257,7 @@ def _lock(path: Path, *, timeout=60.0, create=True):
         stream.close()
 
 
-def _git(repo, *args):
+def _git_raw(repo, *args) -> bytes:
     # CLI needs HEAD and a durable ref; workspace's private helpers are not API.
     env = os.environ.copy()
     for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
@@ -265,7 +265,12 @@ def _git(repo, *args):
         env.pop(name, None)
     result = subprocess.run(["git", "-c", f"core.hooksPath={os.devnull}", "-C", str(repo), *args],
                             capture_output=True, timeout=30, check=True, env=env)
-    return result.stdout.decode("utf-8", "surrogateescape").strip()
+    return result.stdout
+
+
+def _git(repo, *args):
+    """Single-value output (a hash, a ref); trimmed. Path listings use _git_raw."""
+    return _git_raw(repo, *args).decode("utf-8", "surrogateescape").strip()
 
 
 def _now():
@@ -459,15 +464,31 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
                          prompt=prompt, finish=store.finish, retry_on_fail=False)
 
 
+REGULAR_FILE_MODES = {"100644", "100755"}
+
+
 def _missing_deliverables(repo, subject: str, deliverables: list[str]) -> list[str] | None:
     """Deliverables absent from the exact result commit's tree, or None if Git could not
-    say. A deliverable ending in "/" needs at least one file below it; any other is one
-    file. Paths compare as Git reports them (case-sensitive), with "\\" read as "/"."""
+    say. A deliverable ending in "/" needs at least one regular file below it; any other
+    is one regular file. Only blobs with a regular-file mode count: a gitlink (160000) or
+    a symlink (120000) is not a file (W14a review F1). The NUL-separated listing is read
+    raw, never trimmed, so a path keeps its leading spaces (review F2). Paths compare as
+    Git reports them (case-sensitive), with "\\" in the specification read as "/"."""
     try:
-        listing = _git(repo, "ls-tree", "-r", "-z", "--name-only", subject)
+        listing = _git_raw(repo, "ls-tree", "-r", "-z", "--full-tree", subject)
     except (subprocess.SubprocessError, OSError):
         return None
-    files = {name for name in listing.split("\0") if name}
+    files = set()
+    try:
+        for entry in listing.split(b"\0"):
+            if not entry:
+                continue
+            meta, _, path = entry.partition(b"\t")
+            mode, kind, _object = meta.decode("ascii").split(" ")
+            if kind == "blob" and mode in REGULAR_FILE_MODES:
+                files.add(path.decode("utf-8", "surrogateescape"))
+    except (ValueError, UnicodeDecodeError):
+        return None
     missing = []
     for item in deliverables:
         path = item.replace("\\", "/")

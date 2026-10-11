@@ -504,3 +504,40 @@ def test_directory_deliverable_needs_a_file_below_it(case):
     case.spec["deliverables"] = ["allowed/"]
     assert execute(case) == 0  # the worker writes allowed/output.txt
     assert loaded(case)[1].state == "accepted"
+
+
+# W14a Codex review: only regular-file blobs count, and paths are read raw
+def tree_repo(tmp_path, files=(), gitlinks=(), symlinks=()):
+    repo = tmp_path / "tree repo"
+    repo.mkdir()
+    git(repo, "init", "--initial-branch=main")
+    (repo / "seed.txt").write_text("seed", encoding="utf-8")
+    git(repo, "add", "seed.txt")
+    git(repo, "commit", "-m", "seed")
+    seed = git(repo, "rev-parse", "HEAD")
+    for name in files:
+        blob = subprocess.run(["git", "-C", str(repo), "hash-object", "-w", "--stdin"], input=b"content",
+                              capture_output=True, check=True).stdout.decode().strip()
+        git(repo, "update-index", "--add", "--cacheinfo", f"100644,{blob},{name}")
+    for name in gitlinks:
+        git(repo, "update-index", "--add", "--cacheinfo", f"160000,{seed},{name}")
+    for name in symlinks:
+        blob = subprocess.run(["git", "-C", str(repo), "hash-object", "-w", "--stdin"], input=b"seed.txt",
+                              capture_output=True, check=True).stdout.decode().strip()
+        git(repo, "update-index", "--add", "--cacheinfo", f"120000,{blob},{name}")
+    git(repo, "commit", "-m", "result")
+    return repo, git(repo, "rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize("deliverables,kwargs,missing", [
+    (["alpha/module"], {"gitlinks": ["alpha/module"]}, ["alpha/module"]),                    # F1 file
+    (["alpha/results/"], {"gitlinks": ["alpha/results/module"]}, ["alpha/results/"]),       # F1 directory
+    (["alpha/results/"], {"gitlinks": ["alpha/results/module"], "files": ["alpha/results/out.txt"]}, []),
+    (["alpha/link"], {"symlinks": ["alpha/link"]}, ["alpha/link"]),                          # symlink is not a file
+    ([" artifact/result.txt"], {"files": [" artifact/result.txt"]}, []),                     # F2 exact, first entry
+    (["artifact/result.txt"], {"files": [" artifact/result.txt"]}, ["artifact/result.txt"]),  # F2 look-alike
+    ([" artifact/result.txt"], {"files": [" a-first.txt", " artifact/result.txt"]}, []),     # F2 not first
+])
+def test_deliverable_tree_entries(tmp_path, deliverables, kwargs, missing):
+    repo, subject = tree_repo(tmp_path, **kwargs)
+    assert cli._missing_deliverables(repo, subject, deliverables) == missing
