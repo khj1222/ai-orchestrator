@@ -1,5 +1,6 @@
 """W10c: orch run-plan with an offline worker. No model CLI, no network."""
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -319,6 +320,199 @@ def test_f3_bytes_moved_across_file_boundary_are_refused(case, capsys):
                      str(case.tmp / "config.json"), "--checks-dir", str(case.checks), "--run-root",
                      str(case.root)], adapter_factory=factory)
     assert code == 1 and "use a new run_id" in capsys.readouterr().out
+
+
+# W13b (W13 final review concerns 4, 5, 7)
+EXPECTED = {"k": 3, "queries": 20,
+            "a": {"hit_at_3": 0.5, "hits": 10, "no_result_queries": 0},
+            "b": {"hit_at_3": 0.6, "hits": 12, "no_result_queries": 1}}
+TRUSTED_ENV = "PLAN_TEST_TRUSTED"
+
+
+def add_publication(case, monkeypatch, *, gate_command=("{python}", "-c", "pass"), expected=EXPECTED):
+    """W13b re-review R1: numbers come from a private file the manager pins, gated by a check."""
+    private = case.tmp / "trusted"
+    write(private / "eval-expected/summary.json", expected)
+    write(private / "eval.jsonl", json.dumps({"text": "a private evaluation sentence"}) + "\n")
+    monkeypatch.setenv(TRUSTED_ENV, str(private))
+    case.plan.update(private_env=[TRUSTED_ENV], leak_sources=[{"env": TRUSTED_ENV, "files": ["eval.jsonl"]}],
+                     publication={"env": TRUSTED_ENV, "file": "eval-expected/summary.json", "check": "gate"})
+    case.config["environment"] = {"strip_env": [TRUSTED_ENV]}
+    write(case.checks / "gate.json", {"check_id": "gate", "validator_version": "1", "command": list(gate_command)})
+    case.specs["gamma"]["checks"].append("gate")
+    return private
+
+
+def test_prompt_carries_full_task_specification(case):
+    assert run(case) == 0
+    text = prompt_of(case, loaded(case), "gamma")
+    marker = "this JSON is its full content):\n"
+    assert "tasks/gamma.json, which may not exist in this workspace" in text
+    spec, _ = json.JSONDecoder().raw_decode(text[text.index(marker) + len(marker):])
+    assert spec == case.specs["gamma"]
+
+
+def test_route_and_cli_version_are_recorded(case):
+    case.config["paths"]["codex"] = sys.executable  # answers --version like a CLI would
+    case.config["routes"]["ok"].update(model_reasoning_effort="high", sandbox="workspace-write")
+    assert run(case) == 0
+    scope = loaded(case).summary["tasks"]["alpha"]
+    assert scope["route"] == {"tool": "codex", "model": "ok", "effort": "high", "sandbox": "workspace-write",
+                              "approve_for_me": False, "defaults_applied": ["approve_for_me"]}
+    assert scope["cli_version"].startswith("Python 3.")
+
+
+@pytest.mark.parametrize("tool,expected", [  # W13b Codex review F3: adapter defaults are recorded
+    ("codex", {"sandbox": "read-only", "approve_for_me": False, "defaults_applied": ["sandbox", "approve_for_me"]}),
+    ("claude", {"permission_mode": "acceptEdits", "defaults_applied": ["permission_mode"]}),
+])
+def test_resolved_route_includes_adapter_defaults(tool, expected):
+    from orchestrator.run_plan import _resolved_route
+    assert _resolved_route({"tool": tool, "model": "m"}) == {"tool": tool, "model": "m", "effort": "cli-default",
+                                                              **expected}
+
+
+def test_unavailable_cli_version_does_not_fail_the_run(case):
+    assert run(case) == 0  # paths.codex = "unused-codex" does not exist
+    assert loaded(case).summary["tasks"]["alpha"]["cli_version"] == "unavailable"
+
+
+def test_run_report_lists_verdicts_merges_and_trusted_evaluation(case, monkeypatch):
+    add_publication(case, monkeypatch)
+    assert run(case) == 0
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    assert report["state"] == "completed" and report["integration_head"] == loaded(case).summary["integration_head"]
+    rows = {row["task_id"]: row for row in report["tasks"]}
+    assert [c["check_id"] for c in rows["gamma"]["checks"]] == ["gamma-out", "scope", "gate"]
+    assert all(c["verdict"] == "pass" for row in rows.values() for c in row["checks"])
+    assert rows["alpha"]["merge_commit"] == loaded(case).summary["merges"][0]["merge_commit"]
+    evaluation = report["evaluation"]
+    assert evaluation["source"] == "pinned expected summary" and evaluation["task_id"] == "gamma"
+    assert evaluation["eval_summary"] == EXPECTED
+    text = (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+    assert "| B | 0.6 | 12/20 | 1 |" in text and "gamma-out pass" in text
+
+
+def test_expected_summary_is_pinned_before_any_worker_runs(case, monkeypatch):
+    private = add_publication(case, monkeypatch)
+    assert run(case) == 0
+    pinned = loaded(case).summary["publication"]
+    assert pinned["summary"] == EXPECTED and pinned["check"] == "gate"
+    assert pinned["sha256"] == hashlib.sha256((private / "eval-expected/summary.json").read_bytes()).hexdigest()
+
+
+def test_numbers_never_come_from_a_check_process(case, monkeypatch):  # W13b re-review R1
+    # A gate check that writes encoded numbers wherever it can changes nothing published.
+    code = ("import json,pathlib; fake={'k':3,'queries':65536,'a':{'hit_at_3':28985/65536,'hits':28985,"
+            "'no_result_queries':12668},'b':{'hit_at_3':25657/65536,'hits':25657,'no_result_queries':12337}}; "
+            "[pathlib.Path(p).write_text(json.dumps(fake)) for p in ('eval-summary.json','summary.json')]")
+    add_publication(case, monkeypatch, gate_command=("{python}", "-c", code))
+    assert run(case) == 0
+    report_json = (case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8")
+    assert json.loads(report_json)["evaluation"]["eval_summary"] == EXPECTED
+    assert "28985" not in report_json and "65536" not in report_json
+
+
+def test_numbers_are_withheld_when_the_gate_check_fails(case, monkeypatch):
+    add_publication(case, monkeypatch, gate_command=("{python}", "-c", "raise SystemExit(3)"))
+    assert run(case) == 1
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    assert report["evaluation"]["withheld"] == "check_not_passed" and "eval_summary" not in report["evaluation"]
+    assert "| A |" not in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+
+
+def test_numbers_are_withheld_when_the_pinned_source_changed(case, monkeypatch):
+    private = add_publication(case, monkeypatch)
+    assert run(case) == 0
+    write(private / "eval-expected/summary.json", {**EXPECTED, "a": {"hit_at_3": 0.55, "hits": 11, "no_result_queries": 0}})
+    (case.root / "runs/pilot/run-report.json").unlink()
+    assert run(case) == 0  # finished run: report rebuilt, nothing re-run
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    assert report["evaluation"]["withheld"] == "source_changed"
+
+
+@pytest.mark.parametrize("damage,reason", [  # W13b re-review 2 F4
+    ("delete", "source_missing"), ("not-json", "invalid_json"), ("extra-key", "invalid_summary"),
+    ("env-unset", "source_env_not_set"),
+])
+@pytest.mark.parametrize("report_kept", [True, False])
+def test_finished_run_report_withholds_when_the_source_is_unusable(case, monkeypatch, damage, reason, report_kept):
+    private = add_publication(case, monkeypatch)
+    assert run(case) == 0
+    before = loaded(case)
+    source = private / "eval-expected/summary.json"
+    if damage == "delete":
+        source.unlink()
+    elif damage == "not-json":
+        source.write_text("{not json", encoding="utf-8")
+    elif damage == "extra-key":
+        write(source, {**EXPECTED, "query_rows": ["q11"]})
+    else:
+        monkeypatch.delenv(TRUSTED_ENV)
+    if not report_kept:
+        for name in ("run-report.json", "run-report.md"):
+            (case.root / "runs/pilot" / name).unlink()
+    assert run(case) == 0  # finished run: report rebuilt, nothing restarted
+    after = loaded(case)
+    assert {t: after.tasks[t].attempts for t in case.specs} == {t: before.tasks[t].attempts for t in case.specs}
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    assert report["evaluation"]["withheld"] == reason and "eval_summary" not in report["evaluation"]
+    text = (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+    assert "| A |" not in text and "q11" not in text
+
+
+def test_evaluation_names_the_protocol_hash(case, monkeypatch):  # W13b re-review 2 F5
+    add_publication(case, monkeypatch, gate_command=("{python}", "-c", "raise SystemExit(3)"))
+    assert run(case) == 1
+    withheld = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))["evaluation"]
+    assert withheld["protocol_hash"] == HASH
+    assert f"protocol_hash: `{HASH}`" in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+
+
+def test_published_evaluation_names_the_protocol_hash(case, monkeypatch):  # W13b re-review 2 F5
+    add_publication(case, monkeypatch)
+    assert run(case) == 0
+    evaluation = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))["evaluation"]
+    assert evaluation["protocol_hash"] == HASH and evaluation["eval_summary"] == EXPECTED
+    assert f"protocol_hash: `{HASH}`" in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+
+
+def test_invalid_publication_source_starts_nothing(case, monkeypatch, capsys):
+    add_publication(case, monkeypatch, expected={**EXPECTED, "queries": 65536})  # hit_at_3 no longer hits/queries
+    assert run(case) == 1
+    assert "publication source unusable: invalid_summary" in capsys.readouterr().out
+    assert not (case.root / "runs").exists()
+
+
+def test_failed_run_report_shows_the_actual_integration_head(case):  # W13b Codex review F2
+    case.specs["beta"]["route_id"] = "fail-always"
+    assert run(case) == 1
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    head = git(case.repo, "rev-parse", integration_ref("pilot"))
+    assert head != case.base and report["integration_head"] == head
+    assert f"= `{head}`" in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+
+
+def test_report_is_rebuilt_for_a_finished_run_without_rerunning(case):  # W13b Codex review U1
+    assert run(case) == 0
+    before = loaded(case)
+    for name in ("run-report.json", "run-report.md"):
+        (case.root / "runs/pilot" / name).unlink()
+    assert run(case) == 0
+    after = loaded(case)
+    assert {t: after.tasks[t].attempts for t in case.specs} == {t: before.tasks[t].attempts for t in case.specs}
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    assert report["state"] == "completed" and report["integration_head"] == before.summary["integration_head"]
+
+
+def test_run_report_without_evaluation_and_on_failure(case):
+    case.specs["alpha"]["route_id"] = "fail-always"
+    assert run(case) == 1
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    rows = {row["task_id"]: row for row in report["tasks"]}
+    assert report["state"] == "failed" and report["evaluation"] is None
+    assert rows["alpha"]["checks"][0] == {"check_id": "alpha-out", "verdict": "fail", "reason": "missing_artifact"}
+    assert "Not published" in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
 
 
 def test_run_task_still_terminal_on_failed_check(case):

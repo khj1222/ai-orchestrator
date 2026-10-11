@@ -255,6 +255,58 @@ def test_leak_source_file_must_be_a_plain_name(case):
     assert "plain file names" in errors_of(case)
 
 
+# P10 (W13b re-review R1): trusted publication source
+SUMMARY = {"k": 3, "queries": 20, "a": {"hit_at_3": 0.3, "hits": 6, "no_result_queries": 0},
+           "b": {"hit_at_3": 0.3, "hits": 6, "no_result_queries": 0}}
+
+
+def with_publication(case, summary=SUMMARY, **override):
+    write(Path(case.environ["ORCH_VERIFIER_PRIVATE"]) / "eval-expected/summary.json", summary)
+    case.plan["publication"] = {"env": "ORCH_VERIFIER_PRIVATE", "file": "eval-expected/summary.json",
+                                "check": "module-v1", **override}
+
+
+def test_valid_publication_passes(case):
+    with_publication(case)
+    errors, _ = run(case)
+    assert errors == []
+
+
+@pytest.mark.parametrize("override,message", [
+    ({"env": "OTHER_PRIVATE"}, "publication env OTHER_PRIVATE must be listed in private_env"),
+    ({"check": "scope-v1-missing"}, "publication check scope-v1-missing is not attached to any task"),
+    ({"file": "../outside.json"}, "publication must be {env, file, check}"),
+    ({"extra": 1}, "publication must be {env, file, check}"),
+])
+def test_publication_declaration_errors(case, override, message):
+    with_publication(case, **override)
+    assert message in errors_of(case)
+
+
+@pytest.mark.parametrize("summary,reason", [
+    ({**SUMMARY, "queries": 65536}, "invalid_summary"),                       # ratio no longer hits/queries
+    ({**SUMMARY, "query_rows": ["q11"]}, "invalid_summary"),
+    ({**SUMMARY, "a": {**SUMMARY["a"], "hits": True}}, "invalid_summary"),
+    ("not an object", "invalid_json"),
+    ([1, 2], "invalid_summary"),
+])
+def test_publication_source_must_be_an_exact_aggregate(case, summary, reason):
+    with_publication(case, summary)
+    text = errors_of(case)
+    assert f"publication source unusable: {reason}" in text and "q11" not in text
+
+
+def test_explicit_null_publication_is_an_error(case):  # W13b re-review 2 U2
+    case.plan["publication"] = None
+    assert "publication must be {env, file, check}" in errors_of(case)
+
+
+def test_publication_source_needs_the_private_env(case):
+    with_publication(case)
+    case.environ = {}
+    assert "publication source unusable: source_env_not_set" in errors_of(case)
+
+
 # P9
 def test_missing_instructions(case):
     del case.instructions["integrate"]

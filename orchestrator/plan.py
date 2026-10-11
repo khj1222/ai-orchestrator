@@ -9,7 +9,12 @@ Rules (04 §9, 09 §3 W10):
   P2 unique IDs; specs agree with the plan    P7 private env stripped from workers
   P3 known dependencies, no cycles            P8 no private strings in instructions/specs
   P4 each spec passes validate_task           P9 instruction files readable and nonempty
-  P5 one owner per write path
+  P5 one owner per write path                 P10 publication source declared and trusted
+
+P10 (W13b): a plan may publish the evaluation aggregate. The numbers never come
+from a process that ran candidate code; the manager reads a private expected
+summary itself (read_publication_source), and run-plan reports it only after the
+named registered check passed on an accepted result.
 
 TO_BE_ is searched as a substring of every key and string value. P5 follows the
 string-prefix rule workspace.detect_out_of_scope_changes enforces. In P6 a deliverable ending in
@@ -25,6 +30,7 @@ Nothing here runs Git or any process.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -36,9 +42,63 @@ from .cli import _id, _read, _relative, _text, validate_task
 PROTOCOL_HASH_RE = re.compile(r"[0-9a-f]{64}")
 LEAK_MIN_LENGTH = 8
 PLAN_KEYS = {"schema_version", "run_id", "plan_version", "base_commit", "protocol_hash",
-             "private_env", "leak_sources", "tasks"}
+             "private_env", "leak_sources", "publication", "tasks"}
 EXECUTABLE_KEYS = {"task_id", "spec", "instructions"}
 COMPLETED_KEYS = {"task_id", "status", "completed_commit", "deliverables"}
+PUBLICATION_KEYS = {"env", "file", "check"}
+PUBLICATION_MAX_BYTES = 4096
+
+
+class PublicationSourceError(ValueError):
+    """The trusted publication source is missing or not an exact aggregate. The message
+    is a reason code only and never carries file content."""
+
+
+def _count(value, upper):
+    if type(value) is not int or not 0 <= value <= upper:
+        raise PublicationSourceError("invalid_summary")
+    return value
+
+
+def validate_expected_summary(data) -> dict:
+    """The exact aggregate shape (k, queries, and per method hit_at_3, hits,
+    no_result_queries with hit_at_3 == hits / queries). Returns a new dict of the
+    validated values only."""
+    if type(data) is not dict or set(data) != {"k", "queries", "a", "b"}:
+        raise PublicationSourceError("invalid_summary")
+    k, queries = _count(data["k"], 100), _count(data["queries"], 100000)
+    if k < 1 or queries < 1:
+        raise PublicationSourceError("invalid_summary")
+    result = {"k": k, "queries": queries}
+    for method in ("a", "b"):
+        row = data[method]
+        if type(row) is not dict or set(row) != {"hit_at_3", "hits", "no_result_queries"}:
+            raise PublicationSourceError("invalid_summary")
+        hits, empty = _count(row["hits"], queries), _count(row["no_result_queries"], queries)
+        if type(row["hit_at_3"]) not in (int, float) or row["hit_at_3"] != hits / queries:
+            raise PublicationSourceError("invalid_summary")
+        result[method] = {"hit_at_3": hits / queries, "hits": hits, "no_result_queries": empty}
+    return result
+
+
+def read_publication_source(publication: dict, environ) -> tuple[dict, str, str]:
+    """(validated summary, sha256 of the file bytes, resolved path) read by the manager
+    from the private folder named by publication["env"]. Never candidate output."""
+    value = environ.get(publication["env"])
+    folder = Path(value) if value else None
+    if folder is None or not folder.is_dir():
+        raise PublicationSourceError("source_env_not_set")
+    path = (folder / publication["file"]).resolve()
+    if not path.is_relative_to(folder.resolve()) or not path.is_file() or path.is_symlink():
+        raise PublicationSourceError("source_missing")
+    raw = path.read_bytes()
+    if len(raw) > PUBLICATION_MAX_BYTES:
+        raise PublicationSourceError("source_too_large")
+    try:
+        data = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise PublicationSourceError("invalid_json") from None
+    return validate_expected_summary(data), hashlib.sha256(raw).hexdigest(), str(path)
 
 
 def _norm(path: str) -> str:
@@ -368,5 +428,25 @@ def validate_plan(plan_path: Path, config: dict, checks_dir: Path,
         flat = [_squash(v) for v in values]
         for where in sorted({where for secret, where in private if any(secret in v for v in flat)}):
             errors.append(f"{label}: contains a private string from {where}")
+
+    # P10 publication: a trusted private source and a registered check that gates it
+    # Omitting the field means "no publication"; an explicit null is a declaration error (review 2 U2).
+    publication = plan.get("publication")
+    if "publication" in plan:
+        if (type(publication) is not dict or set(publication) != PUBLICATION_KEYS
+                or not _env_name(publication.get("env")) or not _relative(publication.get("file"))
+                or not _id(publication.get("check"))):
+            errors.append("plan: publication must be {env, file, check} with a relative file path")
+        else:
+            if publication["env"].casefold() not in {v.casefold() for v in private_env}:
+                errors.append(f"plan: publication env {publication['env']} must be listed in private_env")
+            if not any(publication["check"] in (s.get("checks") or []) for s in specs.values()):
+                errors.append(f"plan: publication check {publication['check']} is not attached to any task")
+            try:
+                read_publication_source(publication, environ)
+            except PublicationSourceError as error:
+                errors.append(f"publication source unusable: {error}")
+            except OSError as error:
+                errors.append(f"publication source unusable: {type(error).__name__}")
 
     return errors, ([] if errors else _order(list(entries), graph))
