@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "run_id": "pilot-001-mixed-2",
+  "task_id": "search-module",
+  "plan_version": 1,
+  "goal": "protocol v1 의 search(query, documents, k) 규격대로 방법 A(토큰 집합 교집합 크기)와 방법 B(교집합/합집합)를 examples/search-ab/methods/ 에 구현하고 tests/unit/ 에 단위 테스트를 둔다",
+  "depends_on": ["prepare-protocol"],
+  "base_commit": "ce22a70ccad5f518e74c85228f294690e1386710",
+  "protocol_hash": "ea86373c26e72d61f9ca6a15e5636ea96e8496d0c3c2bd0e6bbc1a21e512b624",
+  "allowed_write_paths": [
+    "examples/search-ab/methods/",
+    "examples/search-ab/tests/unit/"
+  ],
+  "deliverables": [
+    "examples/search-ab/methods/__init__.py",
+    "examples/search-ab/methods/a.py",
+    "examples/search-ab/methods/b.py",
+    "examples/search-ab/tests/unit/test_methods_search.py"
+  ],
+  "checks": ["interface-contract-v1", "method-behavior-v1", "allowed-changes-v1"],
+  "route_id": "codex-default",
+  "limits": {
+    "timeout_seconds": 3600,
+    "max_attempts_total": 2,
+    "paid_api_allowed": false
+  }
+}
