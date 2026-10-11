@@ -1,0 +1,1 @@
+{"unit": "ms", "timer": "time.perf_counter", "warmup": 1, "repeats": 5, "queries": 10, "a": {"runs_ms": [0.434, 0.431, 0.429, 0.483, 0.462], "median_ms": 0.434}, "b": {"runs_ms": [0.546, 0.666, 0.637, 0.761, 0.537], "median_ms": 0.637}}
