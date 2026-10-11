@@ -257,7 +257,7 @@ def _lock(path: Path, *, timeout=60.0, create=True):
         stream.close()
 
 
-def _git(repo, *args):
+def _git_raw(repo, *args) -> bytes:
     # CLI needs HEAD and a durable ref; workspace's private helpers are not API.
     env = os.environ.copy()
     for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
@@ -265,7 +265,12 @@ def _git(repo, *args):
         env.pop(name, None)
     result = subprocess.run(["git", "-c", f"core.hooksPath={os.devnull}", "-C", str(repo), *args],
                             capture_output=True, timeout=30, check=True, env=env)
-    return result.stdout.decode("utf-8", "surrogateescape").strip()
+    return result.stdout
+
+
+def _git(repo, *args):
+    """Single-value output (a hash, a ref); trimmed. Path listings use _git_raw."""
+    return _git_raw(repo, *args).decode("utf-8", "surrogateescape").strip()
 
 
 def _now():
@@ -459,6 +464,40 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
                          prompt=prompt, finish=store.finish, retry_on_fail=False)
 
 
+REGULAR_FILE_MODES = {"100644", "100755"}
+
+
+def _missing_deliverables(repo, subject: str, deliverables: list[str]) -> list[str] | None:
+    """Deliverables absent from the exact result commit's tree, or None if Git could not
+    say. A deliverable ending in "/" needs at least one regular file below it; any other
+    is one regular file. Only blobs with a regular-file mode count: a gitlink (160000) or
+    a symlink (120000) is not a file (W14a review F1). The NUL-separated listing is read
+    raw, never trimmed, so a path keeps its leading spaces (review F2). Paths compare as
+    Git reports them (case-sensitive), with "\\" in the specification read as "/"."""
+    try:
+        listing = _git_raw(repo, "ls-tree", "-r", "-z", "--full-tree", subject)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    files = set()
+    try:
+        for entry in listing.split(b"\0"):
+            if not entry:
+                continue
+            meta, _, path = entry.partition(b"\t")
+            mode, kind, _object = meta.decode("ascii").split(" ")
+            if kind == "blob" and mode in REGULAR_FILE_MODES:
+                files.add(path.decode("utf-8", "surrogateescape"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    missing = []
+    for item in deliverables:
+        path = item.replace("\\", "/")
+        present = any(f.startswith(path) for f in files) if path.endswith("/") else path in files
+        if not present:
+            missing.append(item)
+    return missing
+
+
 def _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory, *,
                   scope, base_commit, prompt, finish, retry_on_fail):
     """Run attempts of one task until it is accepted, failed, blocked or cancelled.
@@ -578,6 +617,9 @@ def _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory, *,
         verdict = verify.run_checks(repo=repo, subject_commit=subject, check_ids=spec["checks"],
                                     checks_dir=checks_dir, evidence_root=evidence, attempt_id=aid,
                                     base_commit=base, allowed_write_paths=spec["allowed_write_paths"])
+        missing = _missing_deliverables(repo, subject, spec["deliverables"])
+        _write(evidence / "deliverables.json", {"subject_commit": subject, "missing": missing,
+                                                "inspection_error": missing is None})
 
         with store.lock():
             run = store.load()
@@ -592,28 +634,40 @@ def _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory, *,
             if verdict.aborted_reason:
                 scope(run)["verification_aborted"] = verdict.aborted_reason
             store.save(run)
-            retry = False
+            scope(run)["deliverables_missing"] = missing
+            store.save(run)
+
+            def retry_with(feedback, reason):
+                # Feedback is limited to check IDs, verdicts and reason codes (plan C9).
+                if retry_on_fail and len(task.attempts) < budget:
+                    scope(run)["feedback"] = feedback
+                    store.move(run, task, "blocked", reason + "_retry")
+                    store.move(run, task, "ready")
+                    store.move(run, task, "running")
+                    return None
+                return finish(run, task, "failed", reason)
+
             if verdict.aborted_reason or verdict.worktree_error or any(c.verdict == "undecidable" for c in verdict.checks):
                 code = finish(run, task, "blocked", "verification_undecidable")
             elif any(c.verdict == "fail" for c in verdict.checks):
-                if retry_on_fail and len(task.attempts) < budget:
-                    # Feedback is limited to check IDs, verdicts and reason codes (plan C9).
-                    scope(run)["feedback"] = [{"check_id": c.check_id, "verdict": c.verdict,
-                                               "reason": c.evidence.get("reason")} for c in verdict.checks]
-                    store.move(run, task, "blocked", "check_failed_retry")
-                    store.move(run, task, "ready")
-                    store.move(run, task, "running")
-                    retry = True
-                    code = None
-                else:
-                    code = finish(run, task, "failed", "check_failed")
+                code = retry_with([{"check_id": c.check_id, "verdict": c.verdict, "reason": c.evidence.get("reason")}
+                                   for c in verdict.checks], "check_failed")
             elif (verdict.all_passed() and [c.check_id for c in verdict.checks] == spec["checks"]
                   and all(verify.is_check_current(c, subject) and c.attempt_id == aid for c in verdict.checks)):
-                if not records.accept_attempt(task, aid):
-                    raise CLIError("attempt already accepted; refusing a second acceptance")
-                code = finish(run, task, "accepted")
+                # 04 §9 "submission: deliverables exist" — passing checks alone never accept an
+                # attempt whose result commit lacks a deliverable (W14 first attempt).
+                if missing is None:
+                    code = finish(run, task, "blocked", "deliverable_inspection_error")
+                elif missing:
+                    code = retry_with([{"check_id": "deliverables", "verdict": "fail",
+                                        "reason": "missing_deliverable"}], "missing_deliverable")
+                else:
+                    if not records.accept_attempt(task, aid):
+                        raise CLIError("attempt already accepted; refusing a second acceptance")
+                    code = finish(run, task, "accepted")
             else:
                 code = finish(run, task, "blocked", "incomplete_check_results")
+            retry = code is None
             _cleanup(store, run, attempt, repo)
             if not retry:
                 return code

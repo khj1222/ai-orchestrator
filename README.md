@@ -118,7 +118,7 @@ orch run-plan runs/<run-id>/plan.v1.json --repo <target-repo> --config <config.j
 - 끝나면 기록 폴더에 `run-report.json`·`run-report.md`를 쓴다. 작업별 상태·시도·검사 판정·기준·병합 commit·route·CLI 버전, 통합 선 head, 그리고 계획이 `publication`을 선언했으면 평가 질의 집계값이 들어간다. 이 숫자는 검사 프로세스에서 나오지 않는다. 관리자가 실행 전에 비공개 기대 요약 파일을 직접 읽어 sha256과 함께 고정하고, 지정한 등록 검사가 채택된 결과에서 pass했으며 그 파일이 고정 때와 같을 때만 보여 준다. 아니면 `withheld` 사유만 적는다. 통합 HEAD는 완료·실패와 관계없이 보고 시점의 실제 ref 값이다. 이미 끝난 run을 다시 실행하면 재개하지 않고 기록에서 보고만 다시 만든다. 이 경로는 계획 검사보다 먼저 돌므로, 공개 원천을 더는 읽을 수 없어도(삭제·형식 오류·환경 변수 없음) 보고가 갱신되며 그때 숫자는 `withheld`가 된다(W13b).
 - 범위 검사(`allowed-changes-v1`)는 결과 commit의 최종 상태만 본다. 작업 중 허용 경로 밖에 잠깐 썼다 지운 파일은 탐지하지 않으며 작업자 보고에 기댄다(W13 우려 6).
 
-등록 검사가 정확한 결과 commit에 대해 모두 통과해야 작업을 채택한다. 결과 commit은 `refs/orchestrator/<attempt-id>`에 보존된다. 프로세스 종료를 확인하지 못하면 blocked 상태와 작업 공간을 보존한다. 검증 단계 중 `stop`은 busy를 반환하며, Ctrl+C에 의한 검증 자식 정리는 아직 검증하지 않았다.
+등록 검사가 정확한 결과 commit에 대해 모두 통과해야 작업을 채택한다. 그리고 명세의 `deliverables`가 결과 commit에 실제로 있어야 한다(끝이 `/`이면 그 아래 파일 하나 이상, 아니면 그 파일). 없으면 `missing_deliverable`로 실패하며 run-plan은 시도 예산 안에서 다시 시도한다(04 §9 "제출: 산출물 존재", W14a). 결과 commit은 `refs/orchestrator/<attempt-id>`에 보존된다. 프로세스 종료를 확인하지 못하면 blocked 상태와 작업 공간을 보존한다. 검증 단계 중 `stop`은 busy를 반환하며, Ctrl+C에 의한 검증 자식 정리는 아직 검증하지 않았다.
 
 ## W7b Claude 실행 기록 (2026-09-20)
 
