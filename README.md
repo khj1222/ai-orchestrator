@@ -20,7 +20,8 @@ Does:
   (`orch run-plan`). A dependent task starts from the integration commit of its prerequisites.
 - Decides acceptance only from registered checks and deliverable existence. A worker's "done" message, its exit
   code, or a reviewer's opinion never changes a task's state.
-- Retries a failed task within its attempt budget, telling the worker only check IDs, verdicts and reason codes.
+- `run-plan` retries a task whose checks failed or whose deliverables are missing, within its attempt budget,
+  telling the worker only check IDs, verdicts and reason codes. (`run-task` treats these as final.)
 - Records every attempt, process identity, check verdict and merge, and writes a run report.
 
 Does not:
@@ -32,13 +33,14 @@ Does not:
 ## Principles
 
 - **Checks decide, nothing else.** A task is accepted only when all its registered checks pass on the exact result
-  commit and its deliverables exist in that commit as regular files.
+  commit and its deliverables exist in that commit as regular files (blobs of mode 100644 or 100755; gitlinks
+  and symlinks do not count; a deliverable ending in `/` needs at least one regular file below it).
 - **Fixed inputs.** Plans pin a base commit and a protocol hash; a run refuses to resume if any plan, spec or
   instruction file changed.
 - **One owner per write path.** Two tasks never own overlapping paths, so integration never needs to resolve content.
 - **Private evaluation data stays outside the repository** and outside the workers' environment. Evaluation
   numbers in a report come from an expected summary the manager pinned before the run, shown only after the
-  declared check passed.
+  declared check passed; if that source changed or is missing, the report says `withheld` instead.
 - **Author and reviewer differ.** During development, code written with one vendor's agent was reviewed by the
   other's.
 
@@ -47,12 +49,16 @@ Does not:
 - Windows (the only platform tested), Python 3.10+, git.
 - For real runs: the official CLIs installed and logged in with your own accounts. Check your providers' terms for
   automated use of your subscription; that is your responsibility.
+- Commands below are for Windows PowerShell.
 
-```bash
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 ```
+
+If PowerShell refuses to run `Activate.ps1`, allow it for the current shell only with
+`Set-ExecutionPolicy -Scope Process RemoteSigned`.
 
 Copy `config.example.json` to `config.json` (git-ignored) and fill in absolute CLI paths and model IDs.
 
@@ -61,7 +67,7 @@ Copy `config.example.json` to `config.json` (git-ignored) and fill in absolute C
 The repository contains the result of a real run: two search methods (`examples/search-ab/methods/`), an experiment
 runner (`examples/search-ab/runner/`), their outputs and a report. You can check them offline.
 
-```bash
+```powershell
 python -m pytest
 cd examples/search-ab
 python -m pytest tests
@@ -92,14 +98,14 @@ The evaluation queries used here are private and not published. To run the plan 
    - `behavior-cases.json` — hand-computed cases with expected A/B rankings. `tests/test_verifier.py` contains
      eight public cases in this format you can start from.
 2. Point the environment variable at it and generate the expected results (the tool first checks every hand case):
-   ```bash
-   set ORCH_VERIFIER_PRIVATE=<private-folder>
+   ```powershell
+   $env:ORCH_VERIFIER_PRIVATE = '<private-folder>'
    python -B verifier/reference.py --write-expected
    ```
 3. Copy a plan, e.g. `runs/pilot-001-mixed-2/`, to a new folder, change `run_id` in `plan.v1.json` and every
    `tasks/*.json`, and adjust `route_id`s to routes in your `config.json`.
 4. Validate, then run. Keep run records outside the repository.
-   ```bash
+   ```powershell
    orch validate-plan runs/<your-run>/plan.v1.json --config config.json
    orch run-plan runs/<your-run>/plan.v1.json --config config.json --run-root <records-folder> --parallel 2
    ```
@@ -144,6 +150,10 @@ from a manager-pinned source), gitlinks counted as deliverables, and path whites
 - The scope check sees the final commit only; a file written outside the allowed paths and deleted again is not seen.
 - Claude Code workers hit permission denials (PowerShell tool, `cd … &&` chains) under the configured allow-list
   and worked around them; this slows them down.
+- Inside a virtual environment, `python -m pytest` currently reports one failure,
+  `tests/test_process.py::test_stop_kills_three_generations`: a venv's `python.exe` starts the real interpreter as a
+  child, so the test's PID equality assumption does not hold (process-tree stopping itself works). Example 1's
+  hashes are unaffected. A fix to the test is pending.
 - Only Windows was tested. Ctrl+C and `stop` during verification or with two tasks running were not fully tested.
 - The Claude Code CLI version used (2.1.268) does not accept newer model IDs such as `claude-opus-5-5`.
 - Results reproduce by re-running on the committed outputs; model runs themselves are not deterministic.

@@ -12,7 +12,7 @@
 - 실행 전에 계획을 검사한다(`orch validate-plan`): 작업 그래프, 쓰기 경로 소유, 검사 배선, 비공개 평가 문자열의 누출.
 - 의존 순서대로 작업을 최대 2개까지 동시에, 각자 고정된 기준 commit의 git worktree에서 실행한다(`orch run-plan`). 의존 작업은 선행 작업이 통합된 commit에서 시작한다.
 - 채택은 등록 검사와 산출물 존재만으로 정한다. 작업자의 완료 보고, 종료 코드, 검토자 의견은 상태를 바꾸지 않는다.
-- 실패한 작업은 시도 예산 안에서 다시 시도하며, 작업자에게는 검사 ID·판정·사유 코드만 알려 준다.
+- `run-plan`은 검사 fail이나 산출물 누락인 작업을 시도 예산 안에서 다시 시도하며, 작업자에게는 검사 ID·판정·사유 코드만 알려 준다(`run-task`에서는 종료 상태).
 - 모든 시도, 프로세스 식별, 검사 판정, 병합을 기록하고 run 보고서를 쓴다.
 
 하지 않는 것:
@@ -22,22 +22,25 @@
 
 ## 원칙
 
-- **검사만이 결정한다.** 등록 검사가 정확한 결과 commit에서 모두 pass이고, 산출물이 그 commit에 일반 파일로 있어야 채택한다.
+- **검사만이 결정한다.** 등록 검사가 정확한 결과 commit에서 모두 pass이고, 산출물이 그 commit에 일반 파일(mode 100644·100755 blob, gitlink·심볼릭 링크 제외, `/`로 끝나면 그 아래 일반 파일 하나 이상)로 있어야 채택한다.
 - **입력을 고정한다.** 계획은 기준 commit과 protocol hash를 고정한다. 계획·명세·지시문 파일이 하나라도 바뀌면 같은 run을 재개하지 않는다.
 - **쓰기 경로 소유자는 1명.** 두 작업이 겹치는 경로를 갖지 않으므로 통합에서 내용 충돌을 풀 일이 없다.
-- **비공개 평가 자료는 저장소 밖, 작업자 환경 밖.** 보고서의 평가 숫자는 관리자가 실행 전에 고정한 기대 요약에서만 나오고, 지정한 검사가 pass해야 보인다.
+- **비공개 평가 자료는 저장소 밖, 작업자 환경 밖.** 보고서의 평가 숫자는 관리자가 실행 전에 고정한 기대 요약에서만 나오고, 지정한 검사가 pass해야 보인다. 원천이 바뀌거나 없으면 보고서에는 `withheld`만 적힌다.
 - **작성자와 검토자를 다르게.** 개발 중 한 회사 에이전트가 쓴 코드는 다른 회사 에이전트가 검토했다.
 
 ## 요구 환경과 설치
 
 - Windows(시험한 유일한 환경), Python 3.10 이상, git.
 - 실제 실행에는 공식 CLI가 설치돼 있고 각자 자기 계정으로 로그인돼 있어야 한다. 구독을 자동화에 쓰는 것에 대한 각 회사 약관 확인은 사용자 책임이다.
+- 아래 명령은 Windows PowerShell 기준이다.
 
-```bash
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 ```
+
+PowerShell이 `Activate.ps1` 실행을 거부하면 `Set-ExecutionPolicy -Scope Process RemoteSigned`로 현재 셸에서만 허용한다.
 
 `config.example.json`을 `config.json`(git 제외)으로 복사해 CLI 절대 경로와 모델 ID를 채운다.
 - `paths`의 경로는 실행기가 실제로 돌아갈 셸에서 확인한 것이어야 한다. 버전·해시 폴더는 앱 업데이트로 바뀔 수 있다. 데스크톱 앱이 MSIX 패키지로 설치된 경우 그 앱이 띄운 프로세스가 보는 AppData 경로는 일반 셸과 다를 수 있다.
@@ -49,7 +52,7 @@ pip install -e ".[dev]"
 
 저장소에는 실제 실행의 결과가 들어 있다(검색 방법 `examples/search-ab/methods/`, 실험 실행기 `examples/search-ab/runner/`, 출력, 보고서). CLI 없이 확인할 수 있다.
 
-```bash
+```powershell
 python -m pytest
 cd examples/search-ab
 python -m pytest tests
@@ -77,13 +80,13 @@ python -c "import hashlib, pathlib; [print(n, hashlib.sha256(pathlib.Path('../..
    - `eval-queries.jsonl`: `examples/search-ab/data/dev/documents.jsonl`에 대한 평가 질의. 형식은 `examples/search-ab/protocol/data-format.md`.
    - `behavior-cases.json`: 손으로 계산한 사례와 A/B 기대 순위. `tests/test_verifier.py`에 이 형식의 공개 사례 8개가 있어 출발점으로 쓸 수 있다.
 2. 환경 변수를 그 폴더로 지정하고 기대 결과를 만든다(먼저 손계산 사례를 모두 확인한다).
-   ```bash
-   set ORCH_VERIFIER_PRIVATE=<비공개 폴더>
+   ```powershell
+   $env:ORCH_VERIFIER_PRIVATE = '<비공개 폴더>'
    python -B verifier/reference.py --write-expected
    ```
 3. `runs/pilot-001-mixed-2/` 같은 계획을 새 폴더로 복사하고, `plan.v1.json`과 모든 `tasks/*.json`의 `run_id`를 바꾸고, `route_id`를 자기 `config.json`의 route에 맞춘다.
 4. 검사하고 실행한다. 실행 기록은 저장소 밖에 둔다.
-   ```bash
+   ```powershell
    orch validate-plan runs/<새 run>/plan.v1.json --config config.json
    orch run-plan runs/<새 run>/plan.v1.json --config config.json --run-root <기록 폴더> --parallel 2
    ```
@@ -114,6 +117,7 @@ run마다 관리자가 판정, 변경 범위, 깨끗한 worktree에서의 출력
 - 계획 누출 검사(P8)는 문자열 그대로만 찾는다. ID 대응으로 바꿔 쓴 정답은 통과한다.
 - 범위 검사는 최종 commit만 본다. 허용 경로 밖에 썼다 지운 파일은 보이지 않는다.
 - Claude Code 작업자는 설정한 허용 목록 아래에서 권한 거부(PowerShell 도구, `cd … &&` 연쇄)를 겪고 우회했다. 그만큼 느리다.
+- 가상 환경 안에서 `python -m pytest`를 돌리면 현재 `tests/test_process.py::test_stop_kills_three_generations` 1개가 실패한다. venv의 `python.exe`가 실제 인터프리터를 자식으로 띄워 테스트의 PID 동일 가정이 맞지 않기 때문이다(프로세스 트리 종료 자체는 정상). 예제 1의 해시와는 무관하다. 테스트 수정은 남아 있다.
 - Windows에서만 시험했다. 검증 중이나 두 작업 동시 실행 중의 Ctrl+C·`stop`은 충분히 시험하지 않았다.
 - 사용한 Claude Code CLI(2.1.268)는 `claude-opus-5-5` 같은 새 모델 ID를 받지 않는다.
 - 재현 범위는 커밋된 산출물의 재실행이다. 모델 실행 자체는 결정적이지 않다.
@@ -163,7 +167,7 @@ P8은 공백을 정규화한 문자열 일치만 본다. 지시문은 파일 전
 orch run-plan runs/<run-id>/plan.v1.json --repo <target-repo> --config <config.json> --checks-dir <checks-dir> --run-root <record-root> [--parallel 2]
 ```
 
-- 계획 검사에 오류가 하나라도 있으면 아무것도 시작하지 않는다. 계획에 `private_env`가 있으면 관리자 셸에 그 환경 변수가 있어야 한다.
+- 계획 검사에 오류가 하나라도 있으면 아무것도 시작하지 않는다. `private_env`는 작업자에게서 지울 환경 변수 이름 목록이며 값은 읽지 않는다. `leak_sources`와 `publication`이 가리키는 환경 변수는 관리자 셸에서 유효한 폴더를 가리켜야 한다.
 - 작업은 계획의 위상 순서로 실행한다. 선행 작업이 모두 통합되면 그 시점의 통합 선(`refs/orchestrator/runs/<run-id>/integration`)에서 작업 공간을 만들고, 같은 commit을 범위 검사 기준으로 쓴다.
 - 채택된 결과는 실행 순서대로 하나씩 `git merge --no-ff`로 통합 선에 합친다. 뒤 작업이 먼저 채택되면 앞 작업이 통합될 때까지 기다린다. 병합은 기록 폴더 아래 전용 worktree에서 하며 작성자는 `orchestrator`다. 사용자의 작업 폴더와 `main`은 건드리지 않는다.
 - 채택에는 등록 검사 전부 pass와 함께 명세의 `deliverables`가 결과 commit에 일반 파일(mode 100644·100755)로 있어야 한다. 끝이 `/`이면 그 아래 일반 파일 하나 이상이다. gitlink와 심볼릭 링크는 파일로 세지 않는다. 없으면 `missing_deliverable`이다.
