@@ -33,7 +33,7 @@
     "paid_api_allowed": false
   },
   "environment": {
-    "strip_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY"],
+    "strip_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "ORCH_VERIFIER_PRIVATE"],
     "extra_env": { "PYTHONUTF8": "1" }
   }
 }

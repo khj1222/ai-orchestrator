@@ -77,8 +77,13 @@ def _write(path, value):
                                allow_nan=False) + "\n", encoding="utf-8")
 
 
-def validate_task(spec: dict, config: dict, checks_dir: Path) -> list[str]:
-    """Read-only JSON/definition validation. Does not execute Git or any process."""
+def validate_task(spec: dict, config: dict, checks_dir: Path, *,
+                  plan_task_ids: frozenset | None = None) -> list[str]:
+    """Read-only JSON/definition validation. Does not execute Git or any process.
+
+    run-task passes no plan_task_ids, so depends_on must stay empty (W7 scope).
+    validate-plan passes the plan's task IDs and checks the references itself.
+    """
     errors = []
     if not isinstance(spec, dict) or not isinstance(config, dict):
         return ["task specification and config must be JSON objects"]
@@ -92,8 +97,12 @@ def validate_task(spec: dict, config: dict, checks_dir: Path) -> list[str]:
     for key in ("goal", "base_commit", "route_id"):
         if not _text(spec.get(key)):
             errors.append(f"{key} must be a nonempty string")
-    if spec.get("depends_on") != []:
-        errors.append("depends_on must be an empty array in W7")
+    if plan_task_ids is None:
+        if spec.get("depends_on") != []:
+            errors.append("depends_on must be an empty array in W7")
+    elif not isinstance(spec.get("depends_on"), list) or not all(
+            isinstance(v, str) for v in spec["depends_on"]):
+        errors.append("depends_on must be a list of task IDs")
     for key in ("allowed_write_paths", "deliverables", "checks"):
         values = spec.get(key)
         predicate = _id if key == "checks" else _relative
@@ -633,10 +642,26 @@ def main(argv=None, *, adapter_factory=adapter_for) -> int:
         else:
             child.add_argument("run_id")
             child.add_argument("task_id", nargs="?" if command == "status" else None)
+    child = sub.add_parser("validate-plan")
+    child.add_argument("--repo", type=Path, default=Path.cwd(), help="target repository root (default: cwd)")
+    child.add_argument("plan", type=Path)
+    child.add_argument("--config", type=Path)
+    child.add_argument("--checks-dir", type=Path)
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
-    root = (args.run_root or repo).resolve()
+    root = (getattr(args, "run_root", None) or repo).resolve()
     try:
+        if args.command == "validate-plan":
+            from .plan import validate_plan  # plan imports this module
+            config = _read((args.config or repo / "config.json").resolve())
+            errors, order = validate_plan(args.plan, config, (args.checks_dir or repo / "checks").resolve())
+            if errors:
+                print("\n".join(errors))
+                return 1
+            executable = sum("status" not in t for t in _read(args.plan)["tasks"])
+            print(f"Valid plan: {len(order)} tasks ({executable} executable)")
+            print("order: " + " -> ".join(order))
+            return 0
         if args.command == "status":
             store = RunStore(root, args.run_id)
             with store.lock(create=False):
