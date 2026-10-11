@@ -74,6 +74,7 @@ python -m pytest tests
 python protocol/validate.py --hash
 python -m runner.run --documents data/dev/documents.jsonl --queries data/dev/queries.jsonl --out ../../../search-ab-dev-run
 python -c "import hashlib, pathlib; [print(n, hashlib.sha256(pathlib.Path('../../../search-ab-dev-run', n).read_bytes()).hexdigest()) for n in ('raw-a.jsonl', 'raw-b.jsonl', 'summary.json')]"
+cd ../..
 ```
 
 Expected:
@@ -91,6 +92,7 @@ run by design. The `--out` folder must not exist yet.
 ## Example 2 — run the whole plan with your own CLIs and your own evaluation data
 
 The evaluation queries used here are private and not published. To run the plan end to end you supply your own.
+Run the commands below from the repository root.
 
 1. Create a private folder **outside** the repository containing:
    - `eval-queries.jsonl` — your evaluation queries over `examples/search-ab/data/dev/documents.jsonl`, in the

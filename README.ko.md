@@ -59,6 +59,7 @@ python -m pytest tests
 python protocol/validate.py --hash
 python -m runner.run --documents data/dev/documents.jsonl --queries data/dev/queries.jsonl --out ../../../search-ab-dev-run
 python -c "import hashlib, pathlib; [print(n, hashlib.sha256(pathlib.Path('../../../search-ab-dev-run', n).read_bytes()).hexdigest()) for n in ('raw-a.jsonl', 'raw-b.jsonl', 'summary.json')]"
+cd ../..
 ```
 
 기대값:
@@ -75,6 +76,7 @@ python -c "import hashlib, pathlib; [print(n, hashlib.sha256(pathlib.Path('../..
 ## 예제 2 — 자기 CLI와 자기 평가 자료로 계획 전체 실행
 
 여기서 쓴 평가 질의는 비공개이며 공개하지 않는다. 계획 전체를 돌리려면 자기 자료를 준비한다.
+아래 명령은 저장소 루트에서 실행한다.
 
 1. 저장소 **밖**에 비공개 폴더를 만들고 다음을 둔다.
    - `eval-queries.jsonl`: `examples/search-ab/data/dev/documents.jsonl`에 대한 평가 질의. 형식은 `examples/search-ab/protocol/data-format.md`.
