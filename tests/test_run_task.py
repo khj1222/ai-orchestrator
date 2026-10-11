@@ -541,3 +541,19 @@ def tree_repo(tmp_path, files=(), gitlinks=(), symlinks=()):
 def test_deliverable_tree_entries(tmp_path, deliverables, kwargs, missing):
     repo, subject = tree_repo(tmp_path, **kwargs)
     assert cli._missing_deliverables(repo, subject, deliverables) == missing
+
+
+def test_tree_inspection_error_blocks_instead_of_accepting(case, monkeypatch):
+    real = cli._git_raw
+
+    def fault(repo, *args):
+        if args and args[0] == "ls-tree":
+            raise subprocess.CalledProcessError(17, ["git", *args])
+        return real(repo, *args)
+
+    monkeypatch.setattr(cli, "_git_raw", fault)
+    case.spec["checks"] = ["scope"]
+    assert execute(case) == 2
+    task = loaded(case)[1]
+    assert task.state == "blocked" and task.reason_code == "deliverable_inspection_error"
+    assert task.accepted_attempt_id is None
