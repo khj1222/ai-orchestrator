@@ -87,7 +87,7 @@ orch validate-plan runs/<run-id>/plan.v1.json --repo <target-repo> --config <con
 - P2 task_id 고유(대소문자 무시). 명세의 `task_id`·`run_id`·`plan_version`·`base_commit`·`protocol_hash`가 계획과 타입까지 같다(`true`나 `1.0`은 `1`이 아니다).
 - P3 알려진 선행 작업만 참조하고 순환이 없다.
 - P4 각 명세가 `validate`를 통과한다(`depends_on`만 계획 기준).
-- P5 쓰기 경로 소유자는 1명이다. 실제 범위 검사(`workspace.check_scope`)가 문자열 접두로 판정하므로 `ex/m`과 `ex/methods-extra/`도 겹친다고 본다(대소문자 무시). 산출물은 자기 경로 안에 있어야 하고, 이 판정은 실제 검사처럼 대소문자를 구분한다.
+- P5 쓰기 경로 소유자는 1명이다. 실제 범위 검사(`workspace.detect_out_of_scope_changes`)가 문자열 접두로 판정하므로 `ex/m`과 `ex/methods-extra/`도 겹친다고 본다(대소문자 무시). 산출물은 자기 경로 안에 있어야 하고, 이 판정은 실제 검사처럼 대소문자를 구분한다.
 - P6 작업에 붙은 검사의 `required_artifacts`를 그 작업이나 선행 작업이 만든다. 산출물이 `/`로 끝나면 디렉터리로 보고 하위 경로까지 덮는다. 그 밖에는 그 파일 하나만 덮는다.
 - P7 `private_env`와 `leak_sources`의 환경 변수가 모두 `environment.strip_env`에 있고 `extra_env`에 없다. `leak_sources`의 변수는 `private_env`에도 적어야 한다.
 - P8 비공개 파일의 8자 이상 문자열 값이 지시문이나 명세의 키·값 하나 안에 그대로 없다.

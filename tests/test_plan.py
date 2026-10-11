@@ -336,7 +336,7 @@ def test_u2_leak_source_env_must_be_declared_private(case):
 
 
 def test_p5_follows_runtime_string_prefix_rule(case):
-    # workspace.check_scope would let "ex/methods" write into "ex/methods-extra/"
+    # workspace.detect_out_of_scope_changes would let "ex/methods" write into "ex/methods-extra/"
     case.specs["search-module"]["allowed_write_paths"] = ["ex/methods"]
     case.specs["experiment-runner"]["allowed_write_paths"] = ["ex/runner/", "ex/methods-extra/"]
     assert "write path owned twice: ex/methods (search-module) and ex/methods-extra/" in errors_of(case)

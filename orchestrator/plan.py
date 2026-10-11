@@ -12,7 +12,7 @@ Rules (04 §9, 09 §3 W10):
   P5 one owner per write path
 
 TO_BE_ is searched as a substring of every key and string value. P5 follows the
-string-prefix rule workspace.check_scope enforces. In P6 a deliverable ending in
+string-prefix rule workspace.detect_out_of_scope_changes enforces. In P6 a deliverable ending in
 "/" is a directory; any other deliverable is a single file.
 
 P8 only finds verbatim strings (whitespace-normalised) within one instruction
@@ -46,7 +46,7 @@ def _norm(path: str) -> str:
 
 
 def _may_share(a: str, b: str) -> bool:
-    """Could one changed path be allowed by both prefixes? workspace.check_scope uses
+    """Could one changed path be allowed by both prefixes? workspace.detect_out_of_scope_changes uses
     plain string prefixes, so "ex/m" also allows "ex/methods-extra/"; compare caselessly
     to stay conservative on Windows."""
     a, b = _norm(a).casefold(), _norm(b).casefold()
@@ -54,7 +54,7 @@ def _may_share(a: str, b: str) -> bool:
 
 
 def _allowed(prefix: str, path: str) -> bool:
-    """The exact rule workspace.check_scope enforces (case-sensitive string prefix)."""
+    """The exact rule workspace.detect_out_of_scope_changes enforces (case-sensitive string prefix)."""
     return _norm(path).startswith(_norm(prefix))
 
 
