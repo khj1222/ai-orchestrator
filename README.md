@@ -96,7 +96,7 @@ orch validate-plan runs/<run-id>/plan.v1.json --repo <target-repo> --config <con
 
 P8은 공백을 정규화한 문자열 일치만 본다. 지시문은 파일 전체를, 명세는 키와 값을 하나씩 따로 본다(서로 다른 필드를 이어 붙여 비교하지 않는다). "q99의 정답은 d999" 같은 ID 대응이나 바꿔 쓴 표현은 잡지 못하므로 누출을 막는 장치가 아니라 사후 탐지다. 비공개 파일의 키는 `relevant_doc_ids` 같은 공개 형식 이름이라 비교 대상에서 뺀다. 오류 메시지는 비공개 파일 이름·행·순번만 적고, 비공개 파일의 값과 키는 출력하지 않는다. P8을 돌리려면 검사하는 셸에 해당 환경 변수가 설정돼 있어야 하며, 없으면 통과가 아니라 "검사 불가" 오류다.
 
-선택 필드 `publication`(`{"env", "file", "check"}`)은 평가 집계 공개를 선언한다(P10). `env`는 `private_env`에 있어야 하고, `file`은 그 폴더 안의 기대 요약(`k`, `queries`, 방법별 `hit_at_3`·`hits`·`no_result_queries`, `hit_at_3 == hits/queries`)이며, `check`는 어떤 작업에 붙은 등록 검사여야 한다. 검증 대상 코드가 실행되는 프로세스의 출력은 공개 숫자의 근거로 쓰지 않는다(W13b 재검토 R1). `run-task`는 지금도 `depends_on`이 빈 명세만 받는다.
+선택 필드 `publication`(`{"env", "file", "check"}`)은 평가 집계 공개를 선언한다(P10). `env`는 `private_env`에 있어야 하고, `file`은 그 폴더 안의 기대 요약(`k`, `queries`, 방법별 `hit_at_3`·`hits`·`no_result_queries`, `hit_at_3 == hits/queries`)이며, `check`는 어떤 작업에 붙은 등록 검사여야 한다. 검증 대상 코드가 실행되는 프로세스의 출력은 공개 숫자의 근거로 쓰지 않는다(W13b 재검토 R1). 필드를 생략하면 공개하지 않는다는 뜻이고, `null`로 적으면 선언 오류다. 공개 보고에는 계획의 `protocol_hash`가 함께 적힌다. `run-task`는 지금도 `depends_on`이 빈 명세만 받는다.
 
 ## 계획 실행
 
@@ -115,7 +115,7 @@ orch run-plan runs/<run-id>/plan.v1.json --repo <target-repo> --config <config.j
 - 동시 실행 중 Ctrl+C·`stop`은 작업 하나에 대해 `run-task`가 보장하는 범위까지만 확인했다.
 - 작업자 프롬프트에는 지시문 본문, 제약 JSON, 작업 명세 JSON 전체가 들어간다. 계획은 기준 commit 뒤에 커밋되므로 지시문이 가리키는 명세 파일이 작업 공간에 없을 수 있다(W13b).
 - 작업마다 해석된 route(설정값이 없으면 어댑터 기본값을 쓰고 `defaults_applied`에 표시, effort가 없으면 `cli-default`)와 CLI 버전(`--version` 첫 줄, 실패하면 `unavailable`)을 `summary.json`의 작업 항목에 남긴다(W13b).
-- 끝나면 기록 폴더에 `run-report.json`·`run-report.md`를 쓴다. 작업별 상태·시도·검사 판정·기준·병합 commit·route·CLI 버전, 통합 선 head, 그리고 계획이 `publication`을 선언했으면 평가 질의 집계값이 들어간다. 이 숫자는 검사 프로세스에서 나오지 않는다. 관리자가 실행 전에 비공개 기대 요약 파일을 직접 읽어 sha256과 함께 고정하고, 지정한 등록 검사가 채택된 결과에서 pass했으며 그 파일이 고정 때와 같을 때만 보여 준다. 아니면 `withheld` 사유만 적는다. 통합 HEAD는 완료·실패와 관계없이 보고 시점의 실제 ref 값이다. 이미 끝난 run을 다시 실행하면 재개하지 않고 기록에서 보고만 다시 만든다(W13b).
+- 끝나면 기록 폴더에 `run-report.json`·`run-report.md`를 쓴다. 작업별 상태·시도·검사 판정·기준·병합 commit·route·CLI 버전, 통합 선 head, 그리고 계획이 `publication`을 선언했으면 평가 질의 집계값이 들어간다. 이 숫자는 검사 프로세스에서 나오지 않는다. 관리자가 실행 전에 비공개 기대 요약 파일을 직접 읽어 sha256과 함께 고정하고, 지정한 등록 검사가 채택된 결과에서 pass했으며 그 파일이 고정 때와 같을 때만 보여 준다. 아니면 `withheld` 사유만 적는다. 통합 HEAD는 완료·실패와 관계없이 보고 시점의 실제 ref 값이다. 이미 끝난 run을 다시 실행하면 재개하지 않고 기록에서 보고만 다시 만든다. 이 경로는 계획 검사보다 먼저 돌므로, 공개 원천을 더는 읽을 수 없어도(삭제·형식 오류·환경 변수 없음) 보고가 갱신되며 그때 숫자는 `withheld`가 된다(W13b).
 - 범위 검사(`allowed-changes-v1`)는 결과 commit의 최종 상태만 본다. 작업 중 허용 경로 밖에 잠깐 썼다 지운 파일은 탐지하지 않으며 작업자 보고에 기댄다(W13 우려 6).
 
 등록 검사가 정확한 결과 commit에 대해 모두 통과해야 작업을 채택한다. 결과 commit은 `refs/orchestrator/<attempt-id>`에 보존된다. 프로세스 종료를 확인하지 못하면 blocked 상태와 작업 공간을 보존한다. 검증 단계 중 `stop`은 busy를 반환하며, Ctrl+C에 의한 검증 자식 정리는 아직 검증하지 않았다.
