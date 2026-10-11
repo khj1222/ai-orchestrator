@@ -525,3 +525,27 @@ def test_run_task_still_terminal_on_failed_check(case):
     assert code == 1
     task = records.load_run("single", case.root).tasks["alpha"]
     assert task.state == "failed" and len(task.attempts) == 1
+
+
+# W14a: deliverables must exist in the result commit
+def test_scope_only_task_without_deliverables_retries_then_fails(case):
+    case.specs["alpha"]["checks"] = ["scope"]
+    case.specs["alpha"]["route_id"] = "fail-always"  # commits nothing
+    assert run(case) == 1
+    run_ = loaded(case)
+    alpha = run_.tasks["alpha"]
+    assert alpha.state == "failed" and alpha.reason_code == "missing_deliverable" and len(alpha.attempts) == 2
+    assert "- deliverables: fail (missing_deliverable)" in prompt_of(case, run_, "alpha", 1)
+    assert run_.tasks["gamma"].state == "planned" and not run_.tasks["gamma"].attempts
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    row = next(r for r in report["tasks"] if r["task_id"] == "alpha")
+    assert row["deliverables_missing"] == ["alpha/out.txt"]
+    assert "deliverables missing: alpha/out.txt" in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+
+
+def test_missing_deliverable_feedback_lets_the_retry_succeed(case):
+    case.specs["alpha"]["checks"] = ["scope"]
+    case.specs["alpha"]["route_id"] = "fail-once"  # writes deliverables only after feedback
+    assert run(case) == 0
+    alpha = loaded(case).tasks["alpha"]
+    assert alpha.state == "integrated" and len(alpha.attempts) == 2

@@ -476,3 +476,31 @@ def test_validate_auto_review_route_before_launch(case, value, sandbox, valid):
     if valid:
         adapter, resolved = cli.adapter_for(route, case.config, case.root, case.repo)
         assert resolved.approve_for_me is value
+
+
+# W14a: 04 §9 "submission: deliverables exist" (W14 first attempt was accepted with none)
+def test_scope_only_task_without_deliverables_is_not_accepted(case):
+    case.spec["checks"] = ["scope"]  # the only check passes on an empty result
+    case.config["routes"]["offline"]["model"] = "missing"  # worker commits nothing
+    assert execute(case) == 1
+    run, task = loaded(case)
+    assert task.state == "failed" and task.reason_code == "missing_deliverable"
+    assert task.accepted_attempt_id is None and len(task.attempts) == 1  # W7: no retry
+    record = json.loads((evidence(case, run.attempts[task.attempts[0]]) / "deliverables.json").read_text(encoding="utf-8"))
+    assert record["missing"] == ["allowed/output.txt"] and record["inspection_error"] is False
+
+
+def test_partially_missing_deliverables_fail(case):
+    case.spec["checks"] = ["scope"]
+    case.spec["deliverables"] = ["allowed/output.txt", "allowed/second.txt"]
+    assert execute(case) == 1
+    run, task = loaded(case)
+    assert task.reason_code == "missing_deliverable"
+    assert run.summary["deliverables_missing"] == ["allowed/second.txt"]
+
+
+def test_directory_deliverable_needs_a_file_below_it(case):
+    case.spec["checks"] = ["scope"]
+    case.spec["deliverables"] = ["allowed/"]
+    assert execute(case) == 0  # the worker writes allowed/output.txt
+    assert loaded(case)[1].state == "accepted"

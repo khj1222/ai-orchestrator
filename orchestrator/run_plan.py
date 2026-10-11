@@ -338,6 +338,7 @@ def _write_report(store: RunStore, run, executable: list[str], integrator: _Inte
             "attempts": len(task.attempts), "accepted_attempt_id": task.accepted_attempt_id,
             "base_commit": scope.get("base_commit"), "merge_commit": merges.get(task_id, {}).get("merge_commit"),
             "route": scope.get("route"), "cli_version": scope.get("cli_version"),
+            "deliverables_missing": scope.get("deliverables_missing"),
             "checks": [{"check_id": c.check_id, "verdict": c.verdict, "reason": c.evidence.get("reason")}
                        for c in verdicts]})
         for c in verdicts:  # the gate: the declared check passed on an accepted result
@@ -384,6 +385,8 @@ def _render(report: dict) -> str:
         effort = route.get("effort") or route.get("model_reasoning_effort") or ""
         checks = ", ".join(f"{c['check_id']} {c['verdict']}" + (f" ({c['reason']})" if c["reason"] else "")
                            for c in row["checks"]) or "-"
+        if row.get("deliverables_missing"):  # W14a
+            checks += "; deliverables missing: " + ", ".join(row["deliverables_missing"])
         lines.append(f"| {row['task_id']} | {row['state']} | {row['attempts']} | `{(row['base_commit'] or '-')[:12]}` "
                      f"| `{(row['merge_commit'] or '-')[:12]}` | {route.get('tool', '-')} {route.get('model', '')} {effort} "
                      f"| {row['cli_version'] or '-'} | {checks} |")
