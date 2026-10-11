@@ -62,7 +62,7 @@ class CheckDefinition:
     kind: str                                  # "command" | "scope"
     validator_version: str
     command_id: str
-    command: tuple[str, ...] = ()              # kind=command. "{python}", "{worktree}" 자리표시자 허용
+    command: tuple[str, ...] = ()              # kind=command. "{python}", "{worktree}", "{publish}" 자리표시자 허용
     cwd: str = "."                             # worktree 기준 상대 경로
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     required_artifacts: tuple[str, ...] = ()   # worktree 기준 상대 경로. 없으면 fail
@@ -206,8 +206,12 @@ def _is_within(path: Path, root: Path) -> bool:
         return False
 
 
-def _expand(argument: str, worktree: Path) -> str:
-    return argument.replace("{python}", sys.executable).replace("{worktree}", str(worktree))
+PUBLISH_DIR = "publish"   # evidence_dir/publish: 검사가 공개해도 되는 집계 파일만 쓰는 폴더(작업자에게 보이지 않음)
+
+
+def _expand(argument: str, worktree: Path, publish: Path | None = None) -> str:
+    argument = argument.replace("{python}", sys.executable).replace("{worktree}", str(worktree))
+    return argument.replace("{publish}", str(publish)) if publish is not None else argument
 
 
 def _is_cache_path(path: str, patterns: tuple[str, ...]) -> bool:
@@ -421,7 +425,10 @@ def _run_command_check(definition: CheckDefinition, worktree: Path, attempt_id: 
                            {"reason": REASON_MISSING_ARTIFACT,
                             "missing_artifacts": _rel(evidence_dir / "missing-artifacts.json", evidence_root)})
 
-    argv = [_expand(a, worktree) for a in definition.command]
+    publish = evidence_dir / PUBLISH_DIR
+    if any("{publish}" in a for a in definition.command):
+        publish.mkdir(exist_ok=True)
+    argv = [_expand(a, worktree, publish) for a in definition.command]
     cwd = worktree / definition.cwd
     stdout_path, stderr_path = evidence_dir / "stdout.bin", evidence_dir / "stderr.bin"
     started = _now()
@@ -462,6 +469,9 @@ def _run_command_check(definition: CheckDefinition, worktree: Path, attempt_id: 
     if exit_code != 0:
         evidence["reason"] = REASON_NONZERO_EXIT
         return _base_check(definition, attempt_id, subject_commit, manifest, "fail", exit_code, evidence)
+    # Published files count only for a passing check; a failed check's output is never referenced.
+    if publish.is_dir() and any(publish.iterdir()):
+        evidence["published"] = _rel(publish, evidence_root)
     return _base_check(definition, attempt_id, subject_commit, manifest, "pass", 0, evidence)
 
 

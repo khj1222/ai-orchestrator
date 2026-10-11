@@ -111,6 +111,10 @@ orch run-plan runs/<run-id>/plan.v1.json --repo <target-repo> --config <config.j
 - 어떤 작업이 failed·blocked·cancelled로 기록되는 즉시(그 작업의 스레드가 끝나기 전이라도) 새 작업을 시작하지 않고, 진행 중인 작업이 끝난 뒤 그 상태로 끝낸다. 같은 계획으로 다시 실행하면 통합된 작업은 건너뛰고 이어서 진행한다. 계획·명세·지시문 파일별 sha256(`summary.json`의 `plan_files`)이 하나라도 바뀌었으면 같은 run_id로는 재개하지 않는다.
 - 이미 끝난 계획 작업(`status: completed`)은 실행 기록의 작업으로 만들지 않고 `summary.json`의 `completed_tasks`에 commit만 적는다.
 - 동시 실행 중 Ctrl+C·`stop`은 작업 하나에 대해 `run-task`가 보장하는 범위까지만 확인했다.
+- 작업자 프롬프트에는 지시문 본문, 제약 JSON, 작업 명세 JSON 전체가 들어간다. 계획은 기준 commit 뒤에 커밋되므로 지시문이 가리키는 명세 파일이 작업 공간에 없을 수 있다(W13b).
+- 작업마다 해석된 route(tool·model·effort·sandbox·permission_mode)와 CLI 버전(`--version` 첫 줄, 실패하면 `unavailable`)을 `summary.json`의 작업 항목에 남긴다(W13b).
+- 끝나면 기록 폴더에 `run-report.json`·`run-report.md`를 쓴다. 작업별 상태·시도·검사 판정·기준·병합 commit·route·CLI 버전, 통합 선 head, 그리고 검사가 공개한 평가 질의 집계값(있을 때)이 들어간다(W13b).
+- 범위 검사(`allowed-changes-v1`)는 결과 commit의 최종 상태만 본다. 작업 중 허용 경로 밖에 잠깐 썼다 지운 파일은 탐지하지 않으며 작업자 보고에 기댄다(W13 우려 6).
 
 등록 검사가 정확한 결과 commit에 대해 모두 통과해야 작업을 채택한다. 결과 commit은 `refs/orchestrator/<attempt-id>`에 보존된다. 프로세스 종료를 확인하지 못하면 blocked 상태와 작업 공간을 보존한다. 검증 단계 중 `stop`은 busy를 반환하며, Ctrl+C에 의한 검증 자식 정리는 아직 검증하지 않았다.
 

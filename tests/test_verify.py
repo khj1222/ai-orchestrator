@@ -314,6 +314,31 @@ def test_check_command_env_is_stripped_and_placeholders_expanded(repo, checks_di
     assert os.environ["ANTHROPIC_API_KEY"] == "sk-secret-value-123"
 
 
+PUBLISHER = ("import pathlib,sys; out=pathlib.Path(sys.argv[1]); assert out.is_dir(); "
+             "wt=pathlib.Path(sys.argv[2]).resolve(); assert wt not in out.resolve().parents; "
+             "(out/'eval-summary.json').write_text('{}'); sys.exit(int(sys.argv[3]))")
+
+
+@pytest.mark.parametrize("exit_code,published", [(0, True), (3, False)])
+def test_publish_placeholder_is_outside_worktree_and_counts_only_on_pass(repo, checks_dir, evidence,
+                                                                         exit_code, published):  # W13b
+    repo_path, base = repo
+    check_id = define(checks_dir, "pub-v1", command=[PY, "-c", PUBLISHER, "{publish}", "{worktree}", str(exit_code)])
+    [check] = run_checks(repo_path, base, [check_id], checks_dir, evidence, "a").checks
+    assert check.verdict == ("pass" if exit_code == 0 else "fail")
+    assert ("published" in check.evidence) is published
+    if published:
+        assert (evidence / check.evidence["published"] / "eval-summary.json").is_file()
+
+
+def test_no_publish_folder_without_placeholder(repo, checks_dir, evidence):  # W13b
+    repo_path, base = repo
+    check_id = define(checks_dir, "plain-v1", command=[PY, "-c", "pass"])
+    [check] = run_checks(repo_path, base, [check_id], checks_dir, evidence, "a").checks
+    assert check.verdict == "pass" and "published" not in check.evidence
+    assert not (evidence / "checks" / "plain-v1" / "publish").exists()
+
+
 def test_cwd_field_is_relative_to_worktree(repo, checks_dir, evidence):
     repo_path, base = repo
     check_id = define(checks_dir, "cwd-v1", cwd="methods",

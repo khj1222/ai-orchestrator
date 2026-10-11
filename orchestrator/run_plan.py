@@ -30,6 +30,7 @@ MAX_PARALLEL = 2
 MERGE_IDENTITY = ("-c", "user.name=orchestrator", "-c", "user.email=orchestrator@localhost.invalid",
                   "-c", "commit.gpgsign=false")
 DONE = {"integrated"}
+ROUTE_KEYS = ("tool", "model", "effort", "model_reasoning_effort", "sandbox", "permission_mode")
 
 
 def integration_ref(run_id: str) -> str:
@@ -53,7 +54,12 @@ def _prompt(instructions: str, spec: dict):
         text = (instructions.rstrip() + "\n\nTask constraints:\n" + json.dumps({
             "allowed_write_paths": spec["allowed_write_paths"],
             "deliverables": spec["deliverables"], "checks": spec["checks"]}, ensure_ascii=False, indent=2) +
-            "\nCommit your deliverables in this workspace. Do not change files outside the allowed paths.\n")
+            "\nCommit your deliverables in this workspace. Do not change files outside the allowed paths.\n" +
+            # W13 concern 4: the plan is committed after its base commit, so a spec file the
+            # instructions mention may be missing from the workspace. Its content is here.
+            f"\nTask specification (the instructions may refer to tasks/{spec['task_id']}.json, which may "
+            "not exist in this workspace; this JSON is its full content):\n" +
+            json.dumps(spec, ensure_ascii=False, indent=2) + "\n")
         feedback = scope.get("feedback")
         if feedback:
             lines = [f"- {f['check_id']}: {f['verdict']}" + (f" ({f['reason']})" if f.get("reason") else "")
@@ -148,8 +154,14 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
 
         def execute(task_id: str, base: str) -> int:
             spec = specs[task_id]
+            route = config["routes"][spec["route_id"]]
+            version = _cli_version(config, route["tool"], config_dir)
             with store.lock():
                 run = store.load()
+                # W13 concern 5: what actually ran, not only the route ID.
+                scope = run.summary["tasks"][task_id]
+                scope["route"] = {k: route[k] for k in ROUTE_KEYS if k in route}
+                scope["cli_version"] = version
                 _ready(store, run, run.tasks[task_id])
             return _attempt_loop(store, spec, config, repo, checks_dir, config_dir, adapter_factory,
                                  scope=lambda r: r.summary["tasks"][task_id], base_commit=base,
@@ -198,26 +210,111 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
                 raise
 
         with store.lock():
-            run = store.load()
-            states = [run.tasks[t].state for t in executable]
-            if all(s in DONE for s in states):
-                run.summary["integration_head"] = integrator.head()
-                if run.state != "completed":
-                    store.move(run, run, "completed")
-                print(f"{run.run_id}: completed; integration {integrator.ref} = {run.summary['integration_head']}")
-                return 0
-            for state in ("cancelled", "failed", "blocked"):
-                stuck = [t for t in executable if run.tasks[t].state == state]
-                if stuck:
-                    reason = run.tasks[stuck[0]].reason_code or state
-                    print(f"{run.run_id}: {state} at {', '.join(stuck)} ({reason})")
-                    return _close(store, run, EXIT_CODES[state], reason)
-            if run.state == "blocked":
-                waiting = [t for t in executable if run.tasks[t].state == "accepted"]
-                print(f"{run.run_id}: blocked ({run.reason_code}) with {', '.join(waiting)} accepted but not integrated")
-                return 2
-            print(f"{run.run_id}: no task can start; check dependencies")
-            return _close(store, run, 2, "no_startable_task")
+            code = _finish(store, executable, integrator)
+            _write_report(store, store.load(), executable, integrator.ref, specs)
+            return code
+
+
+def _finish(store: RunStore, executable: list[str], integrator: _Integrator) -> int:
+    run = store.load()
+    states = [run.tasks[t].state for t in executable]
+    if all(s in DONE for s in states):
+        run.summary["integration_head"] = integrator.head()
+        if run.state != "completed":
+            store.move(run, run, "completed")
+        else:
+            store.save(run)
+        print(f"{run.run_id}: completed; integration {integrator.ref} = {run.summary['integration_head']}")
+        return 0
+    for state in ("cancelled", "failed", "blocked"):
+        stuck = [t for t in executable if run.tasks[t].state == state]
+        if stuck:
+            reason = run.tasks[stuck[0]].reason_code or state
+            print(f"{run.run_id}: {state} at {', '.join(stuck)} ({reason})")
+            return _close(store, run, EXIT_CODES[state], reason)
+    if run.state == "blocked":
+        waiting = [t for t in executable if run.tasks[t].state == "accepted"]
+        print(f"{run.run_id}: blocked ({run.reason_code}) with {', '.join(waiting)} accepted but not integrated")
+        return 2
+    print(f"{run.run_id}: no task can start; check dependencies")
+    return _close(store, run, 2, "no_startable_task")
+
+
+def _cli_version(config: dict, tool: str, config_dir: Path) -> str:
+    """First line of `<cli> --version`, or "unavailable"; never fails the run."""
+    try:
+        executable = Path(config["paths"][tool])
+        if not executable.is_absolute():
+            executable = Path(config_dir) / executable
+        result = subprocess.run([str(executable), "--version"], capture_output=True, timeout=30,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        line = result.stdout.decode("utf-8", "replace").strip().splitlines()
+        return line[0] if result.returncode == 0 and line else "unavailable"
+    except (OSError, KeyError, subprocess.SubprocessError):
+        return "unavailable"
+
+
+def _write_report(store: RunStore, run, executable: list[str], ref: str, specs: dict) -> None:
+    """W13 concern 7: verdicts, attempts, merges, routes and the published evaluation
+    aggregate in one place next to the run records (run-report.json / run-report.md)."""
+    checks = records.load_checks(store.root, store.run_id)
+    merges = {m["task_id"]: m for m in run.summary.get("merges", [])}
+    rows, published = [], None
+    for task_id in executable:
+        task, scope = run.tasks[task_id], run.summary["tasks"][task_id]
+        shown = task.accepted_attempt_id or (task.attempts[-1] if task.attempts else None)
+        order = {check_id: i for i, check_id in enumerate(specs[task_id]["checks"])}
+        verdicts = sorted((c for c in checks if c.attempt_id == shown), key=lambda c: order.get(c.check_id, len(order)))
+        rows.append({
+            "task_id": task_id, "state": task.state, "reason_code": task.reason_code,
+            "attempts": len(task.attempts), "accepted_attempt_id": task.accepted_attempt_id,
+            "base_commit": scope.get("base_commit"), "merge_commit": merges.get(task_id, {}).get("merge_commit"),
+            "route": scope.get("route"), "cli_version": scope.get("cli_version"),
+            "checks": [{"check_id": c.check_id, "verdict": c.verdict, "reason": c.evidence.get("reason")}
+                       for c in verdicts]})
+        for c in verdicts:
+            if task.accepted_attempt_id and c.verdict == "pass" and c.evidence.get("published"):
+                folder = store.directory / "attempts" / c.attempt_id / "evidence" / c.evidence["published"]
+                summary = folder / "eval-summary.json"
+                if summary.is_file():
+                    published = {"task_id": task_id, "check_id": c.check_id, "attempt_id": c.attempt_id,
+                                 "subject_commit": c.subject_commit,
+                                 "eval_summary": json.loads(summary.read_text(encoding="utf-8"))}
+    report = {"run_id": run.run_id, "state": run.state, "reason_code": run.reason_code,
+              "integration_ref": ref, "integration_head": run.summary.get("integration_head"),
+              "plan_base_commit": run.summary.get("plan_base_commit"), "tasks": rows,
+              "evaluation": published}
+    (store.directory / "run-report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    (store.directory / "run-report.md").write_text(_render(report), encoding="utf-8", newline="\n")
+
+
+def _render(report: dict) -> str:
+    lines = [f"# run {report['run_id']}: {report['state']}", "",
+             f"- integration: `{report['integration_ref']}` = `{report['integration_head']}`",
+             f"- plan base commit: `{report['plan_base_commit']}`", "",
+             "| task | state | attempts | base | merge | route | CLI | checks |", "|---|---|---|---|---|---|---|---|"]
+    for row in report["tasks"]:
+        route = row["route"] or {}
+        effort = route.get("effort") or route.get("model_reasoning_effort") or ""
+        checks = ", ".join(f"{c['check_id']} {c['verdict']}" + (f" ({c['reason']})" if c["reason"] else "")
+                           for c in row["checks"]) or "-"
+        lines.append(f"| {row['task_id']} | {row['state']} | {row['attempts']} | `{(row['base_commit'] or '-')[:12]}` "
+                     f"| `{(row['merge_commit'] or '-')[:12]}` | {route.get('tool', '-')} {route.get('model', '')} {effort} "
+                     f"| {row['cli_version'] or '-'} | {checks} |")
+    evaluation = report["evaluation"]
+    lines += ["", "## Evaluation queries (aggregate, published by the verifier after every comparison passed)", ""]
+    if evaluation is None:
+        lines.append("Not available: no accepted check published an evaluation summary.")
+    else:
+        summary = evaluation["eval_summary"]
+        lines += [f"Source: `{evaluation['check_id']}` on `{evaluation['subject_commit'][:12]}` ({evaluation['task_id']}). "
+                  f"Queries: {summary['queries']}, k: {summary['k']}.", "",
+                  "| method | hit@3 | hits/queries | no-result queries |", "|---|---|---|---|"]
+        for method in ("a", "b"):
+            row = summary[method]
+            lines.append(f"| {method.upper()} | {row['hit_at_3']} | {row['hits']}/{summary['queries']} | {row['no_result_queries']} |")
+    return "\n".join(lines) + "\n"
 
 
 def _integrate_accepted(store: RunStore, run, integrator: _Integrator, executable: list[str]) -> None:

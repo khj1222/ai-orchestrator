@@ -129,7 +129,7 @@ def project(tmp_path):
     return repo, private
 
 
-def run_check(project, script, *, configured=True, fault=None):
+def run_check(project, script, *, configured=True, fault=None, extra=()):
     repo, private = project
     environment = dict(os.environ, PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
     environment.pop("ORCH_VERIFIER_PRIVATE", None)
@@ -137,7 +137,7 @@ def run_check(project, script, *, configured=True, fault=None):
         environment["ORCH_VERIFIER_PRIVATE"] = str(private)
     if fault:
         environment["TEST_RUNNER_FAULT"] = fault
-    return subprocess.run([sys.executable, "-B", str(repo / "verifier" / f"{script}.py")],
+    return subprocess.run([sys.executable, "-B", str(repo / "verifier" / f"{script}.py"), *extra],
                           cwd=repo.parent, env=environment, capture_output=True, text=True, encoding="utf-8", timeout=30)
 
 
@@ -351,6 +351,34 @@ def test_runner_tampering_fails(project, fault, reason):
     assert reason in result.stdout
 
 
+def test_runner_publishes_only_aggregates_after_pass(project, tmp_path):  # W13b
+    install_runner(project)
+    publish = tmp_path / "publish"
+    result = run_check(project, "runner_consistency", extra=("--publish", str(publish)))
+    assert result.returncode == 0, result.stdout + result.stderr
+    data = json.loads((publish / "eval-summary.json").read_text(encoding="utf-8"))
+    assert set(data) == {"schema", "k", "queries", "protocol_hash", "a", "b"}
+    assert data["schema"] == "eval-summary-1"
+    for method in ("a", "b"):
+        assert set(data[method]) == {"hit_at_3", "hits", "no_result_queries"}
+        assert data[method]["hit_at_3"] == data[method]["hits"] / data["queries"]
+    expected = json.loads((project[1] / "eval-expected/summary.json").read_text(encoding="utf-8"))
+    assert {m: data[m] for m in ("a", "b")} == {m: expected[m] for m in ("a", "b")}
+    text = json.dumps({k: v for k, v in data.items() if k != "protocol_hash"})  # hex could contain "d003"
+    for line in (project[1] / "eval-queries.jsonl").read_text(encoding="utf-8").splitlines():
+        query = json.loads(line)
+        assert query["text"] not in text and query["query_id"] not in text
+        assert not any(doc in text for doc in query["relevant_doc_ids"])
+
+
+def test_runner_failure_publishes_nothing(project, tmp_path):  # W13b
+    install_runner(project)
+    publish = tmp_path / "publish"
+    result = run_check(project, "runner_consistency", fault="summary", extra=("--publish", str(publish)))
+    assert result.returncode == 1
+    assert not (publish / "eval-summary.json").exists()
+
+
 def test_stored_oracle_cannot_be_silently_ignored(project):
     install_runner(project)
     path = project[1] / "eval-expected/raw-a.jsonl"
@@ -385,10 +413,12 @@ def test_runner_requires_all_private_inputs(project, filename):
 def test_registered_definitions(check_id, script):
     definition = load_check_definition(ROOT / "checks", check_id)
     assert definition.check_id == check_id
-    assert definition.command == ("{python}", "-B", f"{{worktree}}/verifier/{script}.py")
+    publish = ("--publish", "{publish}") if script == "runner_consistency" else ()  # W13b
+    assert definition.command == ("{python}", "-B", f"{{worktree}}/verifier/{script}.py", *publish)
     assert definition.timeout_seconds >= 120
     if script == "runner_consistency":
         assert "examples/search-ab/runner/run.py" in definition.required_artifacts
+        assert definition.validator_version == "2"
 
 
 def test_reference_cli_validates_private_oracle(project):

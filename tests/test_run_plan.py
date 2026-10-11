@@ -321,6 +321,61 @@ def test_f3_bytes_moved_across_file_boundary_are_refused(case, capsys):
     assert code == 1 and "use a new run_id" in capsys.readouterr().out
 
 
+# W13b (W13 final review concerns 4, 5, 7)
+def test_prompt_carries_full_task_specification(case):
+    assert run(case) == 0
+    text = prompt_of(case, loaded(case), "gamma")
+    marker = "this JSON is its full content):\n"
+    assert "tasks/gamma.json, which may not exist in this workspace" in text
+    spec, _ = json.JSONDecoder().raw_decode(text[text.index(marker) + len(marker):])
+    assert spec == case.specs["gamma"]
+
+
+def test_route_and_cli_version_are_recorded(case):
+    case.config["paths"]["codex"] = sys.executable  # answers --version like a CLI would
+    case.config["routes"]["ok"].update(model_reasoning_effort="high", sandbox="workspace-write")
+    assert run(case) == 0
+    scope = loaded(case).summary["tasks"]["alpha"]
+    assert scope["route"] == {"tool": "codex", "model": "ok", "model_reasoning_effort": "high",
+                              "sandbox": "workspace-write"}
+    assert scope["cli_version"].startswith("Python 3.")
+
+
+def test_unavailable_cli_version_does_not_fail_the_run(case):
+    assert run(case) == 0  # paths.codex = "unused-codex" does not exist
+    assert loaded(case).summary["tasks"]["alpha"]["cli_version"] == "unavailable"
+
+
+def test_run_report_lists_verdicts_merges_and_published_evaluation(case):
+    code = ("import json,pathlib,sys; out=pathlib.Path(sys.argv[1]); (out/'eval-summary.json').write_text(json.dumps("
+            "{'schema':'eval-summary-1','k':3,'queries':20,'protocol_hash':'x','a':{'hit_at_3':0.5,'hits':10,"
+            "'no_result_queries':0},'b':{'hit_at_3':0.6,'hits':12,'no_result_queries':1}}))")
+    write(case.checks / "publisher.json", {"check_id": "publisher", "validator_version": "1",
+                                           "command": ["{python}", "-c", code, "{publish}"]})
+    case.specs["gamma"]["checks"].append("publisher")
+    assert run(case) == 0
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    assert report["state"] == "completed" and report["integration_head"] == loaded(case).summary["integration_head"]
+    rows = {row["task_id"]: row for row in report["tasks"]}
+    assert [c["check_id"] for c in rows["gamma"]["checks"]] == ["gamma-out", "scope", "publisher"]
+    assert all(c["verdict"] == "pass" for row in rows.values() for c in row["checks"])
+    assert rows["alpha"]["merge_commit"] == loaded(case).summary["merges"][0]["merge_commit"]
+    assert report["evaluation"]["task_id"] == "gamma"
+    assert report["evaluation"]["eval_summary"]["b"]["hit_at_3"] == 0.6
+    text = (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+    assert "| B | 0.6 | 12/20 | 1 |" in text and "gamma-out pass" in text
+
+
+def test_run_report_without_evaluation_and_on_failure(case):
+    case.specs["alpha"]["route_id"] = "fail-always"
+    assert run(case) == 1
+    report = json.loads((case.root / "runs/pilot/run-report.json").read_text(encoding="utf-8"))
+    rows = {row["task_id"]: row for row in report["tasks"]}
+    assert report["state"] == "failed" and report["evaluation"] is None
+    assert rows["alpha"]["checks"][0] == {"check_id": "alpha-out", "verdict": "fail", "reason": "missing_artifact"}
+    assert "Not available" in (case.root / "runs/pilot/run-report.md").read_text(encoding="utf-8")
+
+
 def test_run_task_still_terminal_on_failed_check(case):
     spec = dict(case.specs["alpha"], depends_on=[], route_id="fail-once", run_id="single")
     write(case.tmp / "single.json", spec)

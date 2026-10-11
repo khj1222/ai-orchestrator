@@ -25,7 +25,7 @@
 
 | 필드 | 뜻 |
 |---|---|
-| `command` | argv 리스트. 셸 없이 실행한다. `{python}`은 검증기의 `sys.executable`, `{worktree}`는 검증 worktree 절대 경로로 바뀐다. 절대 경로를 적지 않는다 |
+| `command` | argv 리스트. 셸 없이 실행한다. `{python}`은 검증기의 `sys.executable`, `{worktree}`는 검증 worktree 절대 경로로 바뀐다. `{publish}`는 그 검사의 증거 폴더 안 `publish/` 경로로 바뀐다(작업자에게 보이지 않는다. 검사가 pass일 때만 그 안의 파일이 판정 기록 `published`로 참조된다. 공개해도 되는 집계값만 쓴다). 절대 경로를 적지 않는다 |
 | `cwd` | worktree 기준 상대 경로. 기본 `.` |
 | `timeout_seconds` | 초과하면 프로세스 트리를 종료하고 **undecidable** |
 | `required_artifacts` | worktree 기준 상대 경로. 하나라도 없으면 명령을 돌리지 않고 **fail** (`missing_artifact`) |

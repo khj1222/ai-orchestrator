@@ -30,7 +30,7 @@ python -m pytest tests/test_verifier.py -v
 
 `method_behavior`는 전체 사례를 비교하고 오류들을 모아서 실패한다. int/bool/float는 타입까지 구별한다. `reference.py`는 후보 모듈을 import하지 않으며, 독립 집합 계산과 수동 기대값을 비교한다.
 
-`runner_consistency`는 저장소 밖 임시 폴더에 출력하게 실제 `python -m runner.run`을 실행한다. 기본 k=3, warmup=1, repeats=5 경로를 확인한다. 원시 결과를 독립 참조값·저장된 기대값·후보 검색 모듈 직접 호출과 비교한다. 요약을 원시 결과에서 다시 계산하고 보고서/표준 출력의 표, 모든 산출물 해시, 입력 해시, 규격 해시, 지연 배열과 중앙값을 확인한다. 지연의 절대 크기로 성능 합격선을 정하지 않는다. 파일 쓰기와 캐시는 검증 worktree에 남기지 않는다.
+`runner_consistency`는 저장소 밖 임시 폴더에 출력하게 실제 `python -m runner.run`을 실행한다. 기본 k=3, warmup=1, repeats=5 경로를 확인한다. 원시 결과를 독립 참조값·저장된 기대값·후보 검색 모듈 직접 호출과 비교한다. 요약을 원시 결과에서 다시 계산하고 보고서/표준 출력의 표, 모든 산출물 해시, 입력 해시, 규격 해시, 지연 배열과 중앙값을 확인한다. 지연의 절대 크기로 성능 합격선을 정하지 않는다. 파일 쓰기와 캐시는 검증 worktree에 남기지 않는다. `--publish <dir>`이 주어지면(등록 검사는 `{publish}`로 넘긴다) **모든 비교를 통과한 뒤에만** `eval-summary.json`을 쓴다. 담기는 것은 방법별 `hit_at_3`·`hits`·`no_result_queries`, 질의 수, k, protocol_hash뿐이다. 질의 문장·ID·관련 문서·순위·점수는 내보내지 않는다(W13b).
 
 ## 비공개 폴더
 
