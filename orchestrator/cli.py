@@ -21,6 +21,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
+import threading
 import time
 import uuid
 
@@ -271,6 +272,11 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+_THREAD_LOCKS: dict[str, threading.Lock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
+EXIT_CODES = {"accepted": 0, "failed": 1, "blocked": 2, "cancelled": 3}
+
+
 class RunStore:
     def __init__(self, root, run_id):
         if not _id(run_id):
@@ -278,8 +284,14 @@ class RunStore:
         self.root, self.run_id = Path(root).resolve(), run_id
         self.directory = self.root / "runs" / run_id
 
+    @contextmanager
     def lock(self, **kwargs):
-        return _lock(self.directory / ".state.lock", **kwargs)
+        # run-plan updates records from worker threads; the OS byte lock is per
+        # handle, so threads of one process also take an in-process lock first.
+        with _THREAD_LOCKS_GUARD:
+            guard = _THREAD_LOCKS.setdefault(str(self.directory), threading.Lock())
+        with guard, _lock(self.directory / ".state.lock", **kwargs):
+            yield
 
     def load(self):
         return records.load_run(self.run_id, self.root)
@@ -300,7 +312,16 @@ class RunStore:
         run_state = "completed" if state == "accepted" else state
         if run.state != run_state:
             self.move(run, run, run_state, reason)
-        return {"accepted": 0, "failed": 1, "blocked": 2, "cancelled": 3}[state]
+        return EXIT_CODES[state]
+
+    def finish_task(self, run, task, state, reason=None):
+        """Like finish, but leaves the run state to the plan scheduler."""
+        if task.state != state:
+            self.move(run, task, state, reason)
+        else:
+            task.reason_code = reason
+            self.save(run)
+        return EXIT_CODES[state]
 
 
 def _identity(attempt):
@@ -319,11 +340,14 @@ def _mark_unknown(store, run, attempt, reason):
         store.move(run, attempt, "unknown", reason)
 
 
-def _recover(store, run, task):
-    if (task.state == "verifying" or run.summary.get("verification_pending")
-            or run.summary.get("verification_aborted")):
-        run.summary.setdefault("verification_pending", task.attempts[-1] if task.attempts else "unknown")
-        return store.finish(run, task, "blocked", "verification_requires_inspection")
+def _recover(store, run, task, scope=None, finish=None):
+    """scope holds the task's verification metadata (run.summary for run-task)."""
+    scope = run.summary if scope is None else scope
+    finish = finish or store.finish
+    if (task.state == "verifying" or scope.get("verification_pending")
+            or scope.get("verification_aborted")):
+        scope.setdefault("verification_pending", task.attempts[-1] if task.attempts else "unknown")
+        return finish(run, task, "blocked", "verification_requires_inspection")
     for aid in task.attempts:
         attempt = run.attempts[aid]
         if attempt.state in {"exited", "failed", "cancelled"}:
@@ -337,11 +361,11 @@ def _recover(store, run, task):
             alive = _identity(attempt)
         except (process.ProcessEnumerationError, CLIError, ValueError, TypeError):
             _mark_unknown(store, run, attempt, "restart_identity_unavailable")
-            return store.finish(run, task, "blocked", "restart_identity_unavailable")
+            return finish(run, task, "blocked", "restart_identity_unavailable")
         if alive:
             raise Busy("an existing attempt is still running; no new attempt started")
         if attempt.state == "unknown" or attempt.state == "stopping":
-            return store.finish(run, task, "blocked", "process_tree_requires_inspection")
+            return finish(run, task, "blocked", "process_tree_requires_inspection")
         _mark_unknown(store, run, attempt, "restart_unverifiable")
     return None
 
@@ -390,7 +414,6 @@ def run_task(spec, config, repo: Path, root: Path, checks_dir: Path, config_dir:
 
 def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
     limits = {**config.get("limits", {}), **spec.get("limits", {})}
-    budget, timeout = limits["max_attempts_total"], limits["timeout_seconds"]
     fingerprint = hashlib.sha256(json.dumps({"task": spec, "repo": str(repo), "limits": limits,
                                              "route": config["routes"][spec["route_id"]]},
                                             sort_keys=True).encode()).hexdigest()
@@ -425,6 +448,29 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
         _ready(store, run, task)
         store.save(run)
 
+    def prompt(run, scope):
+        return (spec["goal"] + "\n\nTask constraints:\n" + json.dumps({
+            "allowed_write_paths": spec["allowed_write_paths"],
+            "deliverables": spec["deliverables"], "checks": spec["checks"]}, ensure_ascii=False, indent=2) +
+            "\nCommit your deliverables in this workspace. Do not change files outside the allowed paths.\n")
+
+    return _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory,
+                         scope=lambda run: run.summary, base_commit=spec["base_commit"],
+                         prompt=prompt, finish=store.finish, retry_on_fail=False)
+
+
+def _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory, *,
+                  scope, base_commit, prompt, finish, retry_on_fail):
+    """Run attempts of one task until it is accepted, failed, blocked or cancelled.
+
+    scope(run) returns the dict holding this task's base commit and verification
+    metadata; finish(run, task, state, reason) ends the task. run-task (W7) passes
+    run.summary and store.finish; run-plan passes a per-task dict and finish_task.
+    With retry_on_fail a failed check starts a new attempt while budget remains;
+    W7 keeps a failed check terminal.
+    """
+    limits = {**config.get("limits", {}), **spec.get("limits", {})}
+    budget, timeout = limits["max_attempts_total"], limits["timeout_seconds"]
     while True:
         handle = None
         with store.lock():
@@ -433,7 +479,7 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
             if task.state == "cancelled":
                 return 3
             if len(task.attempts) >= budget:
-                return store.finish(run, task, "failed", "attempt_budget_exhausted")
+                return finish(run, task, "failed", "attempt_budget_exhausted")
             aid = "attempt-" + uuid.uuid4().hex
             attempt_dir = store.directory / "attempts" / aid
             evidence = attempt_dir / "evidence"
@@ -445,30 +491,25 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
             store.save(run)
             try:
                 # A ref is pinned after the first creation; retries cannot follow a moving branch.
-                wt = workspace.create_worktree(repo, run.summary.get("base_commit", spec["base_commit"]),
+                wt = workspace.create_worktree(repo, scope(run).get("base_commit", base_commit),
                                                Path(attempt.workspace))
-                run.summary.setdefault("base_commit", _git(wt, "rev-parse", "HEAD"))
+                scope(run).setdefault("base_commit", _git(wt, "rev-parse", "HEAD"))
+                base = scope(run)["base_commit"]
                 store.save(run)
             except (workspace.WorkspaceError, subprocess.SubprocessError, OSError) as error:
                 store.move(run, attempt, "failed", "workspace_unavailable")
-                run.summary["detail"] = str(error)
-                return store.finish(run, task, "blocked", "workspace_unavailable")
+                scope(run)["detail"] = str(error)
+                return finish(run, task, "blocked", "workspace_unavailable")
             try:
-                prompt = evidence / "prompt.txt"
-                prompt.write_text(
-                    spec["goal"] + "\n\nTask constraints:\n" + json.dumps({
-                        "allowed_write_paths": spec["allowed_write_paths"],
-                        "deliverables": spec["deliverables"], "checks": spec["checks"]},
-                        ensure_ascii=False, indent=2) +
-                    "\nCommit your deliverables in this workspace. Do not change files outside the allowed paths.\n",
-                    encoding="utf-8")
+                prompt_path = evidence / "prompt.txt"
+                prompt_path.write_text(prompt(run, scope(run)), encoding="utf-8")
                 adapter, resolved_spec = factory(config["routes"][spec["route_id"]], config, evidence, config_dir)
-                argv = adapter.build_command(resolved_spec, wt, prompt)
+                argv = adapter.build_command(resolved_spec, wt, prompt_path)
                 store.move(run, attempt, "starting")
                 env = config.get("environment", {})
                 stripped = list(dict.fromkeys([*process.DEFAULT_STRIP_ENV, *env.get("strip_env", [])]))
                 handle = process.start(argv, cwd=wt, stdout_path=evidence / "stdout.log",
-                                       stderr_path=evidence / "stderr.log", stdin_path=prompt,
+                                       stderr_path=evidence / "stderr.log", stdin_path=prompt_path,
                                        strip_env=stripped, env_extra=env.get("extra_env", {}))
                 attempt.process = handle.snapshot()
                 attempt.started_at = handle.started_at
@@ -479,7 +520,7 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
                     _write(evidence / "start-cleanup.json", stopped)
                     if stopped["state"] != "stopped":
                         _mark_unknown(store, run, attempt, "start_cleanup_unknown")
-                        return store.finish(run, task, "blocked", "start_cleanup_unknown")
+                        return finish(run, task, "blocked", "start_cleanup_unknown")
                 _write(evidence / "start-error.json", {"error_type": type(error).__name__})
                 store.move(run, attempt, "failed", "start_failed")
                 _cleanup(store, run, attempt, repo)
@@ -514,7 +555,7 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
                 attempt.ended_at = _now() if stopped["state"] == "stopped" else None
                 if stopped["state"] != "stopped":
                     store.move(run, attempt, "unknown", "timeout_stop_unknown")
-                    return store.finish(run, task, "blocked", "timeout_stop_unknown")
+                    return finish(run, task, "blocked", "timeout_stop_unknown")
                 store.move(run, attempt, "failed", "timeout")
                 _cleanup(store, run, attempt, repo)
                 continue
@@ -529,15 +570,14 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
             ref = f"refs/orchestrator/{aid}"
             _git(repo, "update-ref", ref, subject, "0" * len(subject))
             manifest = evidence / "result-manifest.json"
-            _write(manifest, {"subject_commit": subject, "base_commit": run.summary["base_commit"], "ref": ref})
+            _write(manifest, {"subject_commit": subject, "base_commit": base, "ref": ref})
             attempt.result_manifest = str(manifest)
-            run.summary["verification_pending"] = aid
+            scope(run)["verification_pending"] = aid
             store.save(run)
 
         verdict = verify.run_checks(repo=repo, subject_commit=subject, check_ids=spec["checks"],
                                     checks_dir=checks_dir, evidence_root=evidence, attempt_id=aid,
-                                    base_commit=run.summary["base_commit"],
-                                    allowed_write_paths=spec["allowed_write_paths"])
+                                    base_commit=base, allowed_write_paths=spec["allowed_write_paths"])
 
         with store.lock():
             run = store.load()
@@ -545,26 +585,38 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
             attempt = run.attempts[aid]
             for check in verdict.checks:
                 records.save_check(check, store.root, store.run_id)
-            run.summary.pop("verification_pending", None)
-            run.summary["verification"] = {"aborted_reason": verdict.aborted_reason,
-                                            "worktree_path": verdict.worktree_path,
-                                            "worktree_error": verdict.worktree_error}
+            scope(run).pop("verification_pending", None)
+            scope(run)["verification"] = {"aborted_reason": verdict.aborted_reason,
+                                          "worktree_path": verdict.worktree_path,
+                                          "worktree_error": verdict.worktree_error}
             if verdict.aborted_reason:
-                run.summary["verification_aborted"] = verdict.aborted_reason
+                scope(run)["verification_aborted"] = verdict.aborted_reason
             store.save(run)
+            retry = False
             if verdict.aborted_reason or verdict.worktree_error or any(c.verdict == "undecidable" for c in verdict.checks):
-                code = store.finish(run, task, "blocked", "verification_undecidable")
+                code = finish(run, task, "blocked", "verification_undecidable")
             elif any(c.verdict == "fail" for c in verdict.checks):
-                code = store.finish(run, task, "failed", "check_failed")
+                if retry_on_fail and len(task.attempts) < budget:
+                    # Feedback is limited to check IDs, verdicts and reason codes (plan C9).
+                    scope(run)["feedback"] = [{"check_id": c.check_id, "verdict": c.verdict,
+                                               "reason": c.evidence.get("reason")} for c in verdict.checks]
+                    store.move(run, task, "blocked", "check_failed_retry")
+                    store.move(run, task, "ready")
+                    store.move(run, task, "running")
+                    retry = True
+                    code = None
+                else:
+                    code = finish(run, task, "failed", "check_failed")
             elif (verdict.all_passed() and [c.check_id for c in verdict.checks] == spec["checks"]
                   and all(verify.is_check_current(c, subject) and c.attempt_id == aid for c in verdict.checks)):
                 if not records.accept_attempt(task, aid):
                     raise CLIError("attempt already accepted; refusing a second acceptance")
-                code = store.finish(run, task, "accepted")
+                code = finish(run, task, "accepted")
             else:
-                code = store.finish(run, task, "blocked", "incomplete_check_results")
+                code = finish(run, task, "blocked", "incomplete_check_results")
             _cleanup(store, run, attempt, repo)
-            return code
+            if not retry:
+                return code
 
 
 def stop_task(root: Path, run_id: str, task_id: str) -> int:
@@ -642,6 +694,13 @@ def main(argv=None, *, adapter_factory=adapter_for) -> int:
         else:
             child.add_argument("run_id")
             child.add_argument("task_id", nargs="?" if command == "status" else None)
+    child = sub.add_parser("run-plan")
+    child.add_argument("--repo", type=Path, default=Path.cwd(), help="target repository root (default: cwd)")
+    child.add_argument("--run-root", type=Path)
+    child.add_argument("plan", type=Path)
+    child.add_argument("--config", type=Path)
+    child.add_argument("--checks-dir", type=Path)
+    child.add_argument("--parallel", type=int, default=1, help="tasks to run at once (1 or 2)")
     child = sub.add_parser("validate-plan")
     child.add_argument("--repo", type=Path, default=Path.cwd(), help="target repository root (default: cwd)")
     child.add_argument("plan", type=Path)
@@ -651,6 +710,12 @@ def main(argv=None, *, adapter_factory=adapter_for) -> int:
     repo = args.repo.resolve()
     root = (getattr(args, "run_root", None) or repo).resolve()
     try:
+        if args.command == "run-plan":
+            from .run_plan import run_plan  # run_plan imports this module
+            config_path = (args.config or repo / "config.json").resolve()
+            return run_plan(args.plan, _read(config_path), repo, root,
+                            (args.checks_dir or repo / "checks").resolve(), config_path.parent,
+                            parallel=args.parallel, adapter_factory=adapter_factory)
         if args.command == "validate-plan":
             from .plan import validate_plan  # plan imports this module
             config = _read((args.config or repo / "config.json").resolve())

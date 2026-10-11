@@ -43,7 +43,8 @@ orchestrator/          실행 관리자
   verify.py            등록 검사 실행, verdict 기록                   [W6]
   integrate.py         직렬 merge, 통합 검사                         [3단계, 예정]
   plan.py              계획 파일 검증 (orch validate-plan)             [W10a]
-  cli.py               orch validate / validate-plan / run-task / status / stop  [W7, W10a]
+  cli.py               orch validate / validate-plan / run-task / run-plan / status / stop  [W7, W10a, W10c]
+  run_plan.py          계획 실행, 직렬 통합                           [W10c]
   adapters/
     base.py            어댑터 계약                                   [W3]
     codex.py           codex exec 어댑터                             [W3]
@@ -94,6 +95,22 @@ orch validate-plan runs/<run-id>/plan.v1.json --repo <target-repo> --config <con
 - P9 지시문 파일이 읽히고 비어 있지 않다.
 
 P8은 공백을 정규화한 문자열 일치만 본다. 지시문은 파일 전체를, 명세는 키와 값을 하나씩 따로 본다(서로 다른 필드를 이어 붙여 비교하지 않는다). "q99의 정답은 d999" 같은 ID 대응이나 바꿔 쓴 표현은 잡지 못하므로 누출을 막는 장치가 아니라 사후 탐지다. 비공개 파일의 키는 `relevant_doc_ids` 같은 공개 형식 이름이라 비교 대상에서 뺀다. 오류 메시지는 비공개 파일 이름·행·순번만 적고, 비공개 파일의 값과 키는 출력하지 않는다. P8을 돌리려면 검사하는 셸에 해당 환경 변수가 설정돼 있어야 하며, 없으면 통과가 아니라 "검사 불가" 오류다. `run-task`는 지금도 `depends_on`이 빈 명세만 받는다.
+
+## 계획 실행
+
+검사를 통과한 계획은 `orch run-plan`으로 실행한다. 계획 검사(`validate-plan`)에 오류가 하나라도 있으면 아무것도 시작하지 않는다. 비공개 자료 누출 검사 때문에, 계획에 `private_env`가 있으면 관리자 셸에 그 환경 변수가 설정돼 있어야 한다.
+
+```text
+orch run-plan runs/<run-id>/plan.v1.json --repo <target-repo> --config <config.json> --checks-dir <checks-dir> --run-root <record-root> [--parallel 2]
+```
+
+- 작업은 계획의 위상 순서로 실행한다. 선행 작업이 모두 통합되면 그 시점의 통합 선(`refs/orchestrator/runs/<run-id>/integration`)에서 작업 공간을 만들고, 같은 commit을 범위 검사 기준으로 쓴다.
+- 채택된 결과는 계획 순서대로 하나씩 `git merge --no-ff`로 통합 선에 합친다. 병합은 기록 폴더 아래 전용 worktree에서 하며, 병합 commit 작성자는 `orchestrator`다. 사용자의 작업 폴더와 `main`은 건드리지 않는다. 통합 선을 `main`에 넣는 것은 사람이 한다.
+- 등록 검사가 fail이고 시도 예산이 남았으면 같은 기준에서 다시 시도한다. 새 프롬프트에는 이전 시도의 검사 ID·verdict·reason code만 덧붙이고, 검증기 출력은 넘기지 않는다. `run-task`는 지금처럼 검사 fail을 종료 상태로 둔다.
+- `--parallel 2`이면 시작 가능한 작업을 두 개까지 동시에 실행한다. 통합은 항상 하나씩이다.
+- 어떤 작업이 failed·blocked·cancelled가 되면 새 작업을 시작하지 않고, 진행 중인 작업이 끝난 뒤 그 상태로 끝낸다. 같은 계획으로 다시 실행하면 통합된 작업은 건너뛰고 이어서 진행한다. 계획·명세·지시문이 바뀌었으면 같은 run_id로는 재개하지 않는다.
+- 이미 끝난 계획 작업(`status: completed`)은 실행 기록의 작업으로 만들지 않고 `summary.json`의 `completed_tasks`에 commit만 적는다.
+- 동시 실행 중 Ctrl+C·`stop`은 작업 하나에 대해 `run-task`가 보장하는 범위까지만 확인했다.
 
 등록 검사가 정확한 결과 commit에 대해 모두 통과해야 작업을 채택한다. 결과 commit은 `refs/orchestrator/<attempt-id>`에 보존된다. 프로세스 종료를 확인하지 못하면 blocked 상태와 작업 공간을 보존한다. 검증 단계 중 `stop`은 busy를 반환하며, Ctrl+C에 의한 검증 자식 정리는 아직 검증하지 않았다.
 
