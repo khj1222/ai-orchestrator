@@ -226,6 +226,8 @@ def test_parallel_runs_independent_tasks_at_once(case, monkeypatch):
         case.specs[task_id]["route_id"] = "rendezvous"
     assert run(case, "--parallel", "2") == 0
     assert sorted(p.name for p in sync.iterdir()) == ["alpha.started", "beta.started"]
+    # A retried worker would count the other task's old marker, so only first attempts prove overlap.
+    assert [len(loaded(case).tasks[t].attempts) for t in ("alpha", "beta")] == [1, 1]
     head = loaded(case).summary["integration_head"]
 
     def window(task_id):
