@@ -72,7 +72,7 @@ def case(tmp_path):
     artifact_check(checks, "gamma-out", ["alpha/out.txt", "beta/out.txt", "gamma/out.txt"])
     config = {"paths": {"codex": "unused-codex"},
               "routes": {mode: {"tool": "codex", "model": mode}
-                         for mode in ("ok", "slow", "fail-once", "fail-always")},
+                         for mode in ("ok", "slow", "fail-once", "fail-always", "rendezvous")},
               "limits": {"timeout_seconds": 60, "max_attempts_total": 2}}
 
     def spec(task_id, depends_on, checks_, route="ok"):
@@ -215,10 +215,17 @@ def test_changed_plan_is_refused(case, capsys):
     assert "use a new run_id" in capsys.readouterr().out
 
 
-def test_parallel_runs_independent_tasks_at_once(case):
+def test_parallel_runs_independent_tasks_at_once(case, monkeypatch):
+    # W16a: the workers meet at a rendezvous instead of sleeping, so the run only
+    # succeeds if both worker processes are alive at the same time (no clock race).
+    sync = case.tmp / "sync"
+    sync.mkdir()
+    monkeypatch.setenv("PLAN_WORKER_SYNC", str(sync))
+    monkeypatch.setenv("PLAN_WORKER_PEERS", "2")
     for task_id in ("alpha", "beta"):
-        case.specs[task_id]["route_id"] = "slow"
+        case.specs[task_id]["route_id"] = "rendezvous"
     assert run(case, "--parallel", "2") == 0
+    assert sorted(p.name for p in sync.iterdir()) == ["alpha.started", "beta.started"]
     head = loaded(case).summary["integration_head"]
 
     def window(task_id):
@@ -255,9 +262,31 @@ def test_integration_failure_blocks_run(case, monkeypatch, capsys):
 
 
 # Codex review 2026-10-11 (reviews/W10c-codex-review.md), regressions F1-F3
-def test_f1_later_task_accepted_first_waits_for_plan_order(case):
-    case.specs["alpha"]["route_id"] = "slow"  # alpha finishes after beta
+def test_f1_later_task_accepted_first_waits_for_plan_order(case, monkeypatch):
+    from orchestrator import run_plan
+    import time
+
+    # W16a: alpha starts only after beta's acceptance is on record (read under the
+    # run lock), so "a later task is accepted first" holds by construction.
+    real = run_plan._attempt_loop
+    seen = []
+
+    def alpha_after_beta(store, spec, *args, **kwargs):
+        if spec["task_id"] == "alpha":
+            deadline = time.monotonic() + 60
+            while True:
+                with cli.RunStore(case.root, "pilot").lock(create=False):
+                    beta = records.load_run("pilot", case.root).tasks["beta"].state
+                if beta in ("accepted", "integrated"):
+                    seen.append(beta)
+                    break
+                assert time.monotonic() < deadline
+                time.sleep(0.05)
+        return real(store, spec, *args, **kwargs)
+
+    monkeypatch.setattr(run_plan, "_attempt_loop", alpha_after_beta)
     assert run(case, "--parallel", "2") == 0
+    assert seen == ["accepted"]  # beta was accepted, and not yet integrated, before alpha ran
     run_ = loaded(case)
     assert [m["task_id"] for m in run_.summary["merges"]] == ["alpha", "beta", "gamma"]
     head = run_.summary["integration_head"]
