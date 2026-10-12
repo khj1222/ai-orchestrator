@@ -206,12 +206,15 @@ def test_stop_kills_three_generations(launcher):
     lines = _wait_for_lines(handle.stdout_path, 3)
     generations = {line.split()[0]: int(line.split()[1]) for line in lines}
     assert set(generations) == {"gen0", "gen1", "gen2"}
-    assert generations["gen0"] == handle.pid
-    launcher.extra_pids.extend([generations["gen1"], generations["gen2"]])
+    launcher.extra_pids.extend(pid for pid in generations.values() if pid != handle.pid)
 
     # 3대가 모두 살아 있고 트리 열거가 셋을 다 본다.
     tree = process_tree(handle.pid)
     tree_pids = {p.pid for p in tree}
+    # venv 의 python.exe 는 실제 인터프리터를 자식으로 띄우는 실행기다(W15a). gen0 은 시작한
+    # 프로세스 자신이거나 그 직계 자식이어야 한다.
+    parent_of = {p.pid: p.parent_pid for p in tree}
+    assert generations["gen0"] == handle.pid or parent_of.get(generations["gen0"]) == handle.pid
     assert {generations["gen0"], generations["gen1"], generations["gen2"]} <= tree_pids
     grandchild_before = _alive(generations["gen2"])
     assert grandchild_before is not None
