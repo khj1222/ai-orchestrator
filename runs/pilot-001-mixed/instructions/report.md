@@ -1,7 +1,7 @@
 # 작업 지시문: report (run pilot-001-mixed, plan v1)
 
 당신은 이 저장소의 작업자다. 아래 작업 하나만 수행한다. 저장소 루트의 `AGENTS.md` 규칙이 함께 적용된다.
-작업 명세: `tasks/report.json` (task_id `report`, plan_version 1, base_commit `ce22a70ccad5f518e74c85228f294690e1386710`). 선행 작업 `integrate` 의 결과(`examples/search-ab/results/`)가 작업 공간에 있다.
+작업 명세: `tasks/report.json` (task_id `report`, plan_version 1, base_commit `04935d6f54a475e6906d9be8c851a878c1f80313`). 선행 작업 `integrate` 의 결과(`examples/search-ab/results/`)가 작업 공간에 있다.
 
 ## 1. 목표
 
@@ -32,7 +32,7 @@
 절 구성과 내용:
 
 1. **목적과 범위** — 고정된 소형 문서 모음에서 두 기준 방법을 규격대로 구현하고 같은 조건으로 측정해 재현을 확인한 실험임을 적는다. 새 알고리즘 제안이 아니고 성능 일반화를 위한 표본이 아님을 적는다.
-2. **설정** — base commit `ce22a70ccad5f518e74c85228f294690e1386710`, protocol_hash (`results/dev/manifest.json` 의 값), 자료(`data/dev/`, 문서 수와 질의 수는 `summary.json`·`latency.json` 의 `queries` 와 `data/dev/README.md` 에서), `k`·`warmup`·`repeats`(`latency.json`·`summary.json` 의 값), `python`·`platform`(`manifest.json` 값 그대로), 실행 명령(`manifest.json` 의 `argv` 또는 `INTEGRATION.md`).
+2. **설정** — base commit `04935d6f54a475e6906d9be8c851a878c1f80313`, protocol_hash (`results/dev/manifest.json` 의 값), 자료(`data/dev/`, 문서 수와 질의 수는 `summary.json`·`latency.json` 의 `queries` 와 `data/dev/README.md` 에서), `k`·`warmup`·`repeats`(`latency.json`·`summary.json` 의 값), `python`·`platform`(`manifest.json` 값 그대로), 실행 명령(`manifest.json` 의 `argv` 또는 `INTEGRATION.md`).
 3. **방법** — A·B 점수 정의와 토큰화(`search-interface.md` §4·§5 를 각 한두 문장으로), 동점·k 규칙.
 4. **결과** — `results/dev/report.md` 의 표 두 개를 그대로 옮기고, 각 칸이 `summary.json`·`latency.json` 의 값과 같은지 대조했다고 적는다. `raw-results.md` §5 의 고정 문구를 포함한다.
 5. **재현** — `results/dev` 와 `results/dev-rerun` 의 `raw-a.jsonl`·`raw-b.jsonl`·`summary.json` 해시가 같은지 (`INTEGRATION.md` 의 비교와 두 `manifest.json` 의 `outputs_sha256` 에서). `latency.json` 은 일치를 요구하지 않음을 적는다.

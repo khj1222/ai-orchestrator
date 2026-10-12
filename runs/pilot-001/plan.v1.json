@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_id": "pilot-001",
   "plan_version": 1,
-  "base_commit": "ce22a70ccad5f518e74c85228f294690e1386710",
+  "base_commit": "04935d6f54a475e6906d9be8c851a878c1f80313",
   "protocol_hash": "ea86373c26e72d61f9ca6a15e5636ea96e8496d0c3c2bd0e6bbc1a21e512b624",
   "private_env": ["ORCH_VERIFIER_PRIVATE"],
   "leak_sources": [
@@ -12,7 +12,7 @@
     {
       "task_id": "prepare-protocol",
       "status": "completed",
-      "completed_commit": "ce22a70ccad5f518e74c85228f294690e1386710",
+      "completed_commit": "04935d6f54a475e6906d9be8c851a878c1f80313",
       "deliverables": ["examples/search-ab/protocol/", "examples/search-ab/data/dev/"]
     },
     {

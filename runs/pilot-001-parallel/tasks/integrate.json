@@ -5,7 +5,7 @@
   "plan_version": 1,
   "goal": "search-module 과 experiment-runner 가 통합된 저장소에서 실행기로 개발용 자료(data/dev) 실험을 2회 완주해 examples/search-ab/results/ 에 산출물과 재현 비교 기록(INTEGRATION.md)을 남긴다. 코드는 고치지 않는다",
   "depends_on": ["search-module", "experiment-runner"],
-  "base_commit": "ce22a70ccad5f518e74c85228f294690e1386710",
+  "base_commit": "04935d6f54a475e6906d9be8c851a878c1f80313",
   "protocol_hash": "ea86373c26e72d61f9ca6a15e5636ea96e8496d0c3c2bd0e6bbc1a21e512b624",
   "allowed_write_paths": [
     "examples/search-ab/results/"

@@ -1,7 +1,7 @@
 # 작업 지시문: search-module (run pilot-001-mixed, plan v1)
 
 당신은 이 저장소의 작업자다. 아래 작업 하나만 수행한다. 저장소 루트의 `AGENTS.md` 규칙이 함께 적용된다.
-작업 명세: `tasks/search-module.json` (task_id `search-module`, plan_version 1, base_commit `ce22a70ccad5f518e74c85228f294690e1386710`).
+작업 명세: `tasks/search-module.json` (task_id `search-module`, plan_version 1, base_commit `04935d6f54a475e6906d9be8c851a878c1f80313`).
 
 ## 1. 목표
 
