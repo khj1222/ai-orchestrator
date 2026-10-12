@@ -240,7 +240,7 @@ dev-rerun latency.json {'unit': 'ms', 'timer': 'time.perf_counter', 'warmup': 1,
 - 루트에서 `git diff --check; git status --short --untracked-files=all; git add -- examples/search-ab/results; git diff --cached --name-only; git diff --cached --check`를 실행했다. PowerShell 전체 종료 코드는 0이지만 첫 git add는 아래 오류로 실패했다(해당 하위 프로세스 종료 코드는 별도 캡처하지 않음).
 
 ```text
-fatal: Unable to create 'D:/ai-orchestrator/.git/worktrees/workspace/index.lock': Permission denied
+fatal: Unable to create '<repo>/.git/worktrees/workspace/index.lock': Permission denied
 ```
 
 - worktree의 Git 메타데이터 쓰기 권한을 확장해 `git add -- examples/search-ab/results`를 실행했고 종료 코드는 0이었다. 사용자에게 요청된 커밋을 위한 Git 메타데이터 변경이며 소스 파일은 변경하지 않았다.
