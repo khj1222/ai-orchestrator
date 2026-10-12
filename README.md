@@ -153,10 +153,12 @@ from a manager-pinned source), gitlinks counted as deliverables, and path whites
 - The scope check sees the final commit only; a file written outside the allowed paths and deleted again is not seen.
 - Claude Code workers hit permission denials (PowerShell tool, `cd … &&` chains) under the configured allow-list
   and worked around them; this slows them down.
-- Only Windows was tested. Ctrl+C and `stop` during verification or with two tasks running were not fully tested.
-- The manager does not run on Linux or macOS: `orchestrator/process.py` uses Windows-only process APIs
-  (`subprocess.CREATE_NEW_PROCESS_GROUP`). In a Linux container, Example 1's three result hashes (`raw-a.jsonl`,
-  `raw-b.jsonl`, `summary.json`) matched, but most of the manager's tests fail.
+- Runs with real model CLIs were done on one Windows PC only. Ctrl+C and `stop` during verification or with two
+  tasks running were not fully tested.
+- The manager cannot start workers or checks on Linux: `orchestrator/process.py` uses a Windows-only process API
+  (`subprocess.CREATE_NEW_PROCESS_GROUP`). macOS was not tried; the same code path applies. In a Linux container
+  (Python 3.12), Example 1's three result hashes (`raw-a.jsonl`, `raw-b.jsonl`, `summary.json`) matched, and the
+  manager's tests gave 393 passed, 81 failed (process launch and check verdicts), 21 skipped (Windows-only).
 - The protocol hash depends on the OS. `protocol_hash()` orders files with `sorted()` on `Path` objects, which
   ignores case on Windows and not elsewhere, so `README.md` lands in a different position. The file contents are the
   same; on Linux the hash is `96b2671e8f9e961184f7de7059852854f184a0c9d29e9ad1112fd5c2d9023acc`. Plans and records
