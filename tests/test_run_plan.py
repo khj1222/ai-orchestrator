@@ -284,10 +284,16 @@ def test_f2_blocked_task_halts_new_starts_before_its_thread_returns(case, monkey
                                "instructions": "instructions/delta.md"})
     real = run_plan._attempt_loop
 
+    def alpha_state():
+        # Read under the run lock like `orch status`: an unlocked reader holding the file
+        # open makes the manager's os.replace fail on Windows (W15a).
+        with cli.RunStore(case.root, "pilot").lock(create=False):
+            return records.load_run("pilot", case.root).tasks["alpha"].state
+
     def slow_to_return(store, spec, *args, **kwargs):
         if spec["task_id"] == "beta":  # finish only inside alpha's window below
             deadline = time.monotonic() + 60
-            while records.load_run("pilot", case.root).tasks["alpha"].state != "blocked":
+            while alpha_state() != "blocked":
                 assert time.monotonic() < deadline
                 time.sleep(0.05)
         code = real(store, spec, *args, **kwargs)

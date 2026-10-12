@@ -152,10 +152,6 @@ from a manager-pinned source), gitlinks counted as deliverables, and path whites
 - The scope check sees the final commit only; a file written outside the allowed paths and deleted again is not seen.
 - Claude Code workers hit permission denials (PowerShell tool, `cd … &&` chains) under the configured allow-list
   and worked around them; this slows them down.
-- Inside a virtual environment, `python -m pytest` currently reports one failure,
-  `tests/test_process.py::test_stop_kills_three_generations`: a venv's `python.exe` starts the real interpreter as a
-  child, so the test's PID equality assumption does not hold (process-tree stopping itself works). Example 1's
-  hashes are unaffected. A fix to the test is pending.
 - Only Windows was tested. Ctrl+C and `stop` during verification or with two tasks running were not fully tested.
 - The Claude Code CLI version used (2.1.268) does not accept newer model IDs such as `claude-opus-5-5`.
 - Results reproduce by re-running on the committed outputs; model runs themselves are not deterministic.
