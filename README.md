@@ -46,7 +46,8 @@ Does not:
 
 ## Requirements
 
-- Windows (the only platform tested), Python 3.10+, git.
+- Windows, Python 3.10+, git. The manager and real model-CLI runs were verified on Windows only; for what was
+  tried on Linux, see Known limitations.
 - For real runs: the official CLIs installed and logged in with your own accounts. Check your providers' terms for
   automated use of your subscription; that is your responsibility.
 - Commands below are for Windows PowerShell.
