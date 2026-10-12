@@ -87,7 +87,8 @@ Expected:
 | `summary.json` | `10298c0e7f59952bb165679b4bc8a1976d6b6f743f495412648a64c0d58b38e2` |
 
 The same values are committed in `examples/search-ab/results/dev/`. `latency.json` and `manifest.json` differ per
-run by design. The `--out` folder must not exist yet.
+run by design. The `--out` folder must not exist yet. The protocol hash above is the value computed on Windows;
+on other operating systems it differs (see Known limitations).
 
 ## Example 2 — run the whole plan with your own CLIs and your own evaluation data
 
@@ -153,6 +154,15 @@ from a manager-pinned source), gitlinks counted as deliverables, and path whites
 - Claude Code workers hit permission denials (PowerShell tool, `cd … &&` chains) under the configured allow-list
   and worked around them; this slows them down.
 - Only Windows was tested. Ctrl+C and `stop` during verification or with two tasks running were not fully tested.
+- The manager does not run on Linux or macOS: `orchestrator/process.py` uses Windows-only process APIs
+  (`subprocess.CREATE_NEW_PROCESS_GROUP`). In a Linux container, Example 1's three result hashes (`raw-a.jsonl`,
+  `raw-b.jsonl`, `summary.json`) matched, but most of the manager's tests fail.
+- The protocol hash depends on the OS. `protocol_hash()` orders files with `sorted()` on `Path` objects, which
+  ignores case on Windows and not elsewhere, so `README.md` lands in a different position. The file contents are the
+  same; on Linux the hash is `96b2671e8f9e961184f7de7059852854f184a0c9d29e9ad1112fd5c2d9023acc`. Plans and records
+  in this repository use the Windows value.
+- Read run records only through `orch status` (or the same run lock). On Windows, another program that keeps a
+  record file open without the lock makes the manager's atomic file replace fail with `PermissionError`.
 - The Claude Code CLI version used (2.1.268) does not accept newer model IDs such as `claude-opus-5-5`.
 - Results reproduce by re-running on the committed outputs; model runs themselves are not deterministic.
 
@@ -187,4 +197,4 @@ docs/                development history
 
 ## License
 
-Not chosen yet. Until a license is added, no permission to use, copy or modify is granted.
+MIT. See [LICENSE](LICENSE).
