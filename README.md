@@ -48,8 +48,10 @@ Does not:
 
 - Windows, Python 3.10+, git. The manager and real model-CLI runs were verified on Windows only; for what was
   tried on Linux, see Known limitations.
-- For real runs: the official CLIs installed and logged in with your own accounts. Check your providers' terms for
-  automated use of your subscription; that is your responsibility.
+- For real runs: the official CLIs installed and logged in with your own accounts. Both Anthropic and OpenAI
+  document API keys as the recommended authentication for automated and third-party use. If you use your
+  subscription login instead, check your providers' terms for automated use; that is your responsibility. Do not
+  share one login between machines or run it in public CI.
 - Commands below are for Windows PowerShell.
 
 ```powershell
