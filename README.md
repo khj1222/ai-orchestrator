@@ -168,7 +168,9 @@ from a manager-pinned source), gitlinks counted as deliverables, and path whites
   in this repository use the Windows value.
 - Read run records only through `orch status` (or the same run lock). On Windows, another program that keeps a
   record file open without the lock makes the manager's atomic file replace fail with `PermissionError`.
-- The Claude Code CLI version used (2.1.268) does not accept newer model IDs such as `claude-opus-5-5`.
+- The plan runs above used Claude Code CLI 2.1.268 with `claude-opus-5`; that version does not accept
+  `claude-opus-5-5`. After updating to 2.1.287 (October 2026), one single-task run on `claude-opus-5-5` was accepted
+  with both registered checks passing; a full plan run on it has not been done.
 - Results reproduce by re-running on the committed outputs; model runs themselves are not deterministic.
 
 ## Reference
