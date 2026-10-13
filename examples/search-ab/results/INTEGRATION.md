@@ -2,8 +2,8 @@
 
 ## 범위와 작업 공간
 
-- 실행 전 HEAD: `8cd7f9dd222a8bf75ffe99ef1bf7e259982c5bef`
-- 지시문 base_commit: `ce22a70ccad5f518e74c85228f294690e1386710`
+- 실행 전 HEAD: `f9b9c2a78664724aab899a3079f94643669ed21c`
+- 지시문 base_commit: `04935d6f54a475e6906d9be8c851a878c1f80313`
 - 작업 디렉터리: `examples/search-ab/` (별도 표시한 저장소 조회·커밋은 저장소 루트).
 - 전제 파일 `methods/__init__.py`, `methods/a.py`, `methods/b.py`, `runner/__init__.py`, `runner/run.py`: 모두 존재.
 - 시작 시 Git 변경 없음. `results/`는 없었으며 두 출력 폴더에 각각 한 번만 실행했다.

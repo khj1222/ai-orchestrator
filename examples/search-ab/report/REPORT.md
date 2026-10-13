@@ -10,7 +10,7 @@
 
 | 항목 | 값 | 출처 |
 |---|---|---|
-| base commit | `ce22a70ccad5f518e74c85228f294690e1386710` | 작업 지시문 |
+| base commit | `04935d6f54a475e6906d9be8c851a878c1f80313` | 작업 지시문 |
 | protocol_hash | `ea86373c26e72d61f9ca6a15e5636ea96e8496d0c3c2bd0e6bbc1a21e512b624` | `results/dev/manifest.json`의 `protocol_hash` |
 | 자료 | `data/dev/documents.jsonl`, `data/dev/queries.jsonl` | `results/dev/manifest.json`의 `argv` |
 | 문서 수 | 30 | `data/dev/README.md` |

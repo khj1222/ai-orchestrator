@@ -30,8 +30,8 @@
 
 ## 요구 환경과 설치
 
-- Windows(시험한 유일한 환경), Python 3.10 이상, git.
-- 실제 실행에는 공식 CLI가 설치돼 있고 각자 자기 계정으로 로그인돼 있어야 한다. 구독을 자동화에 쓰는 것에 대한 각 회사 약관 확인은 사용자 책임이다.
+- Windows, Python 3.10 이상, git. 실행 관리자와 실제 모델 CLI 실행은 Windows에서만 검증했다. Linux에서 시험한 범위는 알려진 한계 절에 있다.
+- 실제 실행에는 공식 CLI가 설치돼 있고 각자 자기 계정으로 로그인돼 있어야 한다. Anthropic과 OpenAI 모두 자동화·제3자 도구 사용에는 API 키를 권장 인증 방식으로 안내한다. 대신 구독 로그인을 쓴다면, 구독을 자동화에 쓰는 것에 대한 각 회사 약관 확인은 사용자 책임이다. 한 로그인을 여러 기기에서 나눠 쓰거나 공개 CI에서 돌리지 않는다.
 - 아래 명령은 Windows PowerShell 기준이다.
 
 ```powershell
@@ -71,7 +71,7 @@ cd ../..
 | `raw-b.jsonl` | `cb363cfba38f91e2cc5db531ccd1ff80257f047b2dbd1988bc5d02c6982afe3c` |
 | `summary.json` | `10298c0e7f59952bb165679b4bc8a1976d6b6f743f495412648a64c0d58b38e2` |
 
-같은 값이 `examples/search-ab/results/dev/`에 커밋돼 있다. `latency.json`·`manifest.json`은 실행마다 다르다(규격대로). `--out` 폴더는 아직 없어야 한다.
+같은 값이 `examples/search-ab/results/dev/`에 커밋돼 있다. `latency.json`·`manifest.json`은 실행마다 다르다(규격대로). `--out` 폴더는 아직 없어야 한다. 위 protocol hash는 Windows에서 계산한 값이며 다른 OS에서는 다르다(알려진 한계 참고).
 
 ## 예제 2 — 자기 CLI와 자기 평가 자료로 계획 전체 실행
 
@@ -119,7 +119,10 @@ run마다 관리자가 판정, 변경 범위, 깨끗한 worktree에서의 출력
 - 계획 누출 검사(P8)는 문자열 그대로만 찾는다. ID 대응으로 바꿔 쓴 정답은 통과한다.
 - 범위 검사는 최종 commit만 본다. 허용 경로 밖에 썼다 지운 파일은 보이지 않는다.
 - Claude Code 작업자는 설정한 허용 목록 아래에서 권한 거부(PowerShell 도구, `cd … &&` 연쇄)를 겪고 우회했다. 그만큼 느리다.
-- Windows에서만 시험했다. 검증 중이나 두 작업 동시 실행 중의 Ctrl+C·`stop`은 충분히 시험하지 않았다.
+- 실제 모델 CLI를 쓴 실행은 Windows PC 한 대에서만 했다. 검증 중이나 두 작업 동시 실행 중의 Ctrl+C·`stop`은 충분히 시험하지 않았다.
+- 실행 관리자는 Linux에서 작업자와 검사를 띄우지 못한다. `orchestrator/process.py`가 Windows 전용 프로세스 API(`subprocess.CREATE_NEW_PROCESS_GROUP`)를 쓰기 때문이다. macOS는 시험하지 않았지만 같은 코드 경로를 탄다. Linux 컨테이너(Python 3.12)에서 예제 1의 결과 해시 세 개(`raw-a.jsonl`, `raw-b.jsonl`, `summary.json`)는 같았고, 실행 관리자 테스트는 393 통과, 81 실패(프로세스 실행과 검사 판정), 21 건너뜀(Windows 전용)이었다.
+- protocol hash는 OS에 따라 다르다. `protocol_hash()`가 `Path` 객체를 `sorted()`로 정렬하는데, Windows에서는 대소문자를 무시하고 다른 OS에서는 구분해서 `README.md`의 순서가 달라진다. 파일 내용은 같고, Linux 값은 `96b2671e8f9e961184f7de7059852854f184a0c9d29e9ad1112fd5c2d9023acc`이다. 이 저장소의 계획과 기록은 Windows 값을 쓴다.
+- 실행 기록은 `orch status`(또는 같은 run 잠금)로만 읽는다. Windows에서는 다른 프로그램이 잠금 없이 기록 파일을 열어 두면 실행 관리자의 원자적 파일 교체가 `PermissionError`로 실패한다.
 - 사용한 Claude Code CLI(2.1.268)는 `claude-opus-5-5` 같은 새 모델 ID를 받지 않는다.
 - 재현 범위는 커밋된 산출물의 재실행이다. 모델 실행 자체는 결정적이지 않다.
 
@@ -205,4 +208,4 @@ docs/                  개발 이력
 
 ## 라이선스
 
-아직 정하지 않았다. 라이선스가 추가되기 전까지는 사용·복제·수정 권한을 부여하지 않는다.
+MIT. [LICENSE](LICENSE) 참고.

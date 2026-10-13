@@ -1,7 +1,7 @@
 # 작업 지시문: integrate (run pilot-001-parallel, plan v1)
 
 당신은 이 저장소의 작업자다. 아래 작업 하나만 수행한다. 저장소 루트의 `AGENTS.md` 규칙이 함께 적용된다.
-작업 명세: `tasks/integrate.json` (task_id `integrate`, plan_version 1, base_commit `ce22a70ccad5f518e74c85228f294690e1386710`). 선행 작업 `search-module`(`methods/`, `tests/unit/`)과 `experiment-runner`(`runner/`, `tests/runner/`)의 결과가 작업 공간에 통합되어 있다.
+작업 명세: `tasks/integrate.json` (task_id `integrate`, plan_version 1, base_commit `04935d6f54a475e6906d9be8c851a878c1f80313`). 선행 작업 `search-module`(`methods/`, `tests/unit/`)과 `experiment-runner`(`runner/`, `tests/runner/`)의 결과가 작업 공간에 통합되어 있다.
 
 ## 1. 목표
 

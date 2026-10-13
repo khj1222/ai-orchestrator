@@ -5,7 +5,7 @@
   "plan_version": 1,
   "goal": "protocol v1 의 search(query, documents, k) 규격대로 방법 A(토큰 집합 교집합 크기)와 방법 B(교집합/합집합)를 examples/search-ab/methods/ 에 구현하고 tests/unit/ 에 단위 테스트를 둔다",
   "depends_on": ["prepare-protocol"],
-  "base_commit": "ce22a70ccad5f518e74c85228f294690e1386710",
+  "base_commit": "04935d6f54a475e6906d9be8c851a878c1f80313",
   "protocol_hash": "ea86373c26e72d61f9ca6a15e5636ea96e8496d0c3c2bd0e6bbc1a21e512b624",
   "allowed_write_paths": [
     "examples/search-ab/methods/",
