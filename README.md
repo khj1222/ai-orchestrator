@@ -69,7 +69,8 @@ Claude routes run with `--safe-mode` by default (`"safe_mode": true`, Claude Cod
 hooks, MCP servers, plugins, skills, `CLAUDE.md` and auto memory, both your own and any `.claude/settings.json` or
 `.mcp.json` a worker writes into its workspace, while login, built-in tools and permissions work as usual. The target
 repository's `CLAUDE.md` is then not read automatically, so put the rules a worker needs in its instructions or name
-the file there. Set `"safe_mode": false` on a route to turn it off.
+the file there. Admin-managed (policy) settings still apply, including any hooks they define. Set
+`"safe_mode": false` on a route to turn it off.
 
 ## Example 1 — reproduce the committed results without any model CLI
 

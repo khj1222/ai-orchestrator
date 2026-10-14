@@ -478,13 +478,16 @@ def test_validate_auto_review_route_before_launch(case, value, sandbox, valid):
         assert resolved.approve_for_me is value
 
 
-@pytest.mark.parametrize("value,valid", [(None, True), (True, True), (False, True),
-                                         ("false", False), (0, False)])
+OMITTED = object()
+
+
+@pytest.mark.parametrize("value,valid", [(OMITTED, True), (True, True), (False, True),
+                                         ("false", False), (0, False), (None, False)])
 def test_validate_claude_safe_mode_route_before_launch(case, tmp_path, value, valid):  # W16c
     case.config["paths"]["claude"] = "unused-claude"
     route = {"tool": "claude", "model": "m"}
-    if value is not None:
-        route["safe_mode"] = value
+    if value is not OMITTED:
+        route["safe_mode"] = value  # None is an explicit JSON null (Codex W16c review suggestion 4)
     case.config["routes"]["offline"] = route
     errors = cli.validate_task(case.spec, case.config, case.checks)
     assert (not errors) is valid
