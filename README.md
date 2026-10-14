@@ -177,7 +177,10 @@ from a manager-pinned source), gitlinks counted as deliverables, and path whites
 - The Claude worker in the mixed plan above used Claude Code CLI 2.1.268 with `claude-opus-5`; that version does not accept
   `claude-opus-5-5`. After updating to 2.1.287 (October 2026), one single-task run on `claude-opus-5-5` was accepted
   with both registered checks passing; a full plan run on it has not been done.
-- Claude routes use `--safe-mode` by default since October 2026; no real run with it has been done yet.
+- Claude routes use `--safe-mode` by default since October 2026. With Claude Code 2.1.287 and `claude-opus-5-5`,
+  one single-task run with it was accepted with both registered checks passing. In a direct check, hooks in a
+  workspace `.claude/settings.json` ran without `--safe-mode` and did not run with it. A full plan run with it has
+  not been done.
 - Results reproduce by re-running on the committed outputs; model runs themselves are not deterministic.
 
 ## Reference
