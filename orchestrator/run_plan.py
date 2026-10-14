@@ -43,7 +43,7 @@ def _resolved_route(route: dict) -> dict:
     tool = route["tool"]
     spec_type = CodexSpec if tool == "codex" else ClaudeSpec
     defaults = {f.name: f.default for f in fields(spec_type) if f.default is not MISSING}
-    keys = ("sandbox", "approve_for_me") if tool == "codex" else ("permission_mode",)
+    keys = ("sandbox", "approve_for_me") if tool == "codex" else ("permission_mode", "safe_mode")
     effort = route.get("effort", route.get("model_reasoning_effort"))
     resolved = {"tool": tool, "model": route.get("model"),
                 "effort": effort if effort is not None else "cli-default"}

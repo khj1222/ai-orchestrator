@@ -47,6 +47,7 @@ PowerShell이 `Activate.ps1` 실행을 거부하면 `Set-ExecutionPolicy -Scope 
 - `routes`의 각 키는 작업 명세의 `route_id`가 가리키는 실행 설정이다. 모델은 전체 ID로 적는다.
 - Codex의 `approve_for_me: true`는 CLI의 `--approve-for-me`를 쓴다. `workspace-write`에서만 허용하며 샌드박스를 해제하지 않는다. Git worktree 메타데이터가 작업 공간 밖에 있으면 결과 커밋에 필요할 수 있다. CLI 지원 여부는 `codex exec --help`로 확인한다.
 - Claude Code 작업자는 `allowed_tools`에 `Bash(git:*)`·`Bash(python:*)` 같은 허용 패턴이 있어야 테스트와 커밋을 할 수 있다. 이 앱(Claude Code) 안에서 실행기를 띄우면 `CLAUDECODE`·`CLAUDE_CODE_ENTRYPOINT`를 `strip_env`에 넣어 중첩 세션을 피한다.
+- Claude route는 기본으로 `--safe-mode`로 실행한다(`"safe_mode": true`, Claude Code 2.1.169 이상). 사용자 설정과 작업자가 작업 공간에 만든 `.claude/settings.json`·`.mcp.json`의 훅·MCP 서버·플러그인·스킬·`CLAUDE.md`·auto memory를 끄고, 로그인·내장 도구·권한은 그대로 둔다. 대상 저장소의 `CLAUDE.md`도 자동으로 읽지 않으므로 작업자에게 필요한 규칙은 지시문에 적거나 그 파일을 지시문에서 가리킨다. 끄려면 route에 `"safe_mode": false`를 둔다.
 
 ## 예제 1 — 모델 CLI 없이 커밋된 결과 재현
 
@@ -124,6 +125,7 @@ run마다 관리자가 판정, 변경 범위, 깨끗한 worktree에서의 출력
 - protocol hash는 OS에 따라 다르다. `protocol_hash()`가 `Path` 객체를 `sorted()`로 정렬하는데, Windows에서는 대소문자를 무시하고 다른 OS에서는 구분해서 `README.md`의 순서가 달라진다. 파일 내용은 같고, Linux 값은 `96b2671e8f9e961184f7de7059852854f184a0c9d29e9ad1112fd5c2d9023acc`이다. 이 저장소의 계획과 기록은 Windows 값을 쓴다.
 - 실행 기록은 `orch status`(또는 같은 run 잠금)로만 읽는다. Windows에서는 다른 프로그램이 잠금 없이 기록 파일을 열어 두면 실행 관리자의 원자적 파일 교체가 `PermissionError`로 실패한다.
 - 위 혼합 계획의 Claude 작업자는 Claude Code CLI 2.1.268과 `claude-opus-5`를 사용했다. 그 버전은 `claude-opus-5-5`를 받지 않는다. 2.1.287로 업데이트한 뒤(2026년 10월) `claude-opus-5-5`로 작업 하나를 실행해 등록 검사 두 개가 모두 통과하고 채택됐다. 계획 전체 실행은 아직 하지 않았다.
+- Claude route의 `--safe-mode` 기본 적용은 2026년 10월에 넣었고, 이 설정으로 실제 실행한 적은 아직 없다.
 - 재현 범위는 커밋된 산출물의 재실행이다. 모델 실행 자체는 결정적이지 않다.
 
 ## 상세 참조

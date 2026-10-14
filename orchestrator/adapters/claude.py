@@ -4,6 +4,11 @@ W7 이 route 설정을 ClaudeSpec 으로 풀어 build_command 의 argv 와 **같
 W2 의 stdin_path 로 넘긴다. 프롬프트는 argv 에 넣지 않는다(`claude -p` 는 위치 인수가 없으면
 stdin 을 프롬프트로 읽는다). `--bare` 는 구독 인증을 읽지 않으므로 절대 넣지 않는다.
 
+W16c: 기본으로 `--safe-mode` 를 넣는다(CLI 2.1.169 이상). 작업 공간의 `.claude/settings.json` 훅과
+`.mcp.json` 서버, 사용자 전역 훅·플러그인·스킬·CLAUDE.md·auto memory 를 끄고 인증·내장 도구·권한은
+그대로 둔다. 작업자가 만든 설정 파일이 다음 호출에서 실행되지 않게 하려는 것이다. route 의
+`safe_mode: false` 로만 끈다.
+
 파서는 저장소의 CLI 2.1.268 fixture(`tests/fixtures/claude/`)를 대상으로 한다. `--output-format json`
 은 실행이 끝날 때 JSON 객체 하나를 한 번에 쓰므로, 강제 종료된 실행은 **빈 파일** 을 남긴다.
 빈 출력은 파싱 실패가 아니라 "incomplete" 다(08 §4.2). 성공과 실패의 필드 구조가 같으므로
@@ -43,6 +48,7 @@ class ClaudeSpec:
     max_budget_usd: float | None = None
     max_turns: int | None = None               # 2.1.268 에는 --max-turns 가 없다. 기본 미출력
     session_persistence: bool = True           # False 면 --no-session-persistence
+    safe_mode: bool = True                     # True 면 --safe-mode (W16c)
 
 
 class ResultParseError(ValueError):
@@ -113,6 +119,10 @@ class ClaudeAdapter:
             argv += ["--json-schema", _schema_argument(spec.json_schema_path, workspace)]
         if not spec.session_persistence:
             argv.append("--no-session-persistence")
+        if type(spec.safe_mode) is not bool:
+            raise ValueError("safe_mode must be a bool")
+        if spec.safe_mode:
+            argv.append("--safe-mode")
         if spec.add_dirs:
             argv.append("--add-dir")
             for directory in spec.add_dirs:

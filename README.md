@@ -65,6 +65,12 @@ If PowerShell refuses to run `Activate.ps1`, allow it for the current shell only
 
 Copy `config.example.json` to `config.json` (git-ignored) and fill in absolute CLI paths and model IDs.
 
+Claude routes run with `--safe-mode` by default (`"safe_mode": true`, Claude Code 2.1.169 or later). It turns off
+hooks, MCP servers, plugins, skills, `CLAUDE.md` and auto memory, both your own and any `.claude/settings.json` or
+`.mcp.json` a worker writes into its workspace, while login, built-in tools and permissions work as usual. The target
+repository's `CLAUDE.md` is then not read automatically, so put the rules a worker needs in its instructions or name
+the file there. Set `"safe_mode": false` on a route to turn it off.
+
 ## Example 1 — reproduce the committed results without any model CLI
 
 The repository contains the result of a real run: two search methods (`examples/search-ab/methods/`), an experiment
@@ -171,6 +177,7 @@ from a manager-pinned source), gitlinks counted as deliverables, and path whites
 - The Claude worker in the mixed plan above used Claude Code CLI 2.1.268 with `claude-opus-5`; that version does not accept
   `claude-opus-5-5`. After updating to 2.1.287 (October 2026), one single-task run on `claude-opus-5-5` was accepted
   with both registered checks passing; a full plan run on it has not been done.
+- Claude routes use `--safe-mode` by default since October 2026; no real run with it has been done yet.
 - Results reproduce by re-running on the committed outputs; model runs themselves are not deterministic.
 
 ## Reference
