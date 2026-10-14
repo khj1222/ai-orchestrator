@@ -156,7 +156,7 @@ def test_build_command_minimal_and_stdin_contract(command_inputs):
     adapter, spec, workspace, prompt = command_inputs
     argv = adapter.build_command(spec, workspace, prompt)
     assert argv == [str(adapter.claude_path), "-p", "--output-format", "json", "--model", "claude-opus-5",
-                    "--permission-mode", "acceptEdits", "--effort", "high"]
+                    "--permission-mode", "acceptEdits", "--effort", "high", "--safe-mode"]
     assert prompt.read_text(encoding="utf-8") not in argv
     assert str(prompt) not in argv
     assert "--bare" not in argv
@@ -176,12 +176,21 @@ def test_build_command_all_options_variadic_last(command_inputs, tmp_path):
     assert argv == [str(adapter.claude_path), "-p", "--output-format", "json", "--model", "claude-opus-5",
                     "--permission-mode", "plan", "--effort", "xhigh", "--max-budget-usd", "2.5",
                     "--json-schema", '{"type":"object","properties":{"name":{"type":"string"}}}',
-                    "--no-session-persistence",
+                    "--no-session-persistence", "--safe-mode",
                     "--add-dir", str(workspace / "sub"), str(other),
                     "--allowedTools", "Bash", "Read"]
     # 가변 인수 옵션 뒤에는 다른 옵션이 오지 않는다.
     tail = argv[argv.index("--add-dir"):]
     assert [a for a in tail if a.startswith("-")] == ["--add-dir", "--allowedTools"]
+
+
+def test_safe_mode_is_default_and_opt_out(command_inputs):
+    # W16c: 작업 공간의 훅·.mcp.json 과 사용자 설정을 끈다. 끄는 것은 명시적으로만.
+    adapter, spec, workspace, prompt = command_inputs
+    assert ClaudeSpec(model="m").safe_mode is True
+    assert adapter.build_command(spec, workspace, prompt).count("--safe-mode") == 1
+    argv = adapter.build_command(replace(spec, safe_mode=False), workspace, prompt)
+    assert "--safe-mode" not in argv and "--bare" not in argv
 
 
 def test_max_turns_is_opt_in(command_inputs):
@@ -194,7 +203,7 @@ def test_max_turns_is_opt_in(command_inputs):
     {"model": "TO_BE_SELECTED"}, {"model": ""}, {"model": "--bare"}, {"effort": "extreme"},
     {"effort": "TO_BE_SELECTED"}, {"permission_mode": "yolo"}, {"max_budget_usd": 0},
     {"max_budget_usd": True}, {"max_turns": 0}, {"allowed_tools": ("--bare",)},
-    {"json_schema_path": Path("missing.json")},
+    {"json_schema_path": Path("missing.json")}, {"safe_mode": "false"}, {"safe_mode": 0}, {"safe_mode": None},
 ])
 def test_invalid_settings_rejected(command_inputs, changes):
     adapter, spec, workspace, prompt = command_inputs

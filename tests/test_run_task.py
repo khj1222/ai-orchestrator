@@ -478,6 +478,27 @@ def test_validate_auto_review_route_before_launch(case, value, sandbox, valid):
         assert resolved.approve_for_me is value
 
 
+OMITTED = object()
+
+
+@pytest.mark.parametrize("value,valid", [(OMITTED, True), (True, True), (False, True),
+                                         ("false", False), (0, False), (None, False)])
+def test_validate_claude_safe_mode_route_before_launch(case, tmp_path, value, valid):  # W16c
+    case.config["paths"]["claude"] = "unused-claude"
+    route = {"tool": "claude", "model": "m"}
+    if value is not OMITTED:
+        route["safe_mode"] = value  # None is an explicit JSON null (Codex W16c review suggestion 4)
+    case.config["routes"]["offline"] = route
+    errors = cli.validate_task(case.spec, case.config, case.checks)
+    assert (not errors) is valid
+    if valid:
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("task", encoding="utf-8")
+        adapter, resolved = cli.adapter_for(route, case.config, tmp_path, case.repo)
+        argv = adapter.build_command(resolved, case.repo, prompt)
+        assert ("--safe-mode" in argv) is (value is not False)
+
+
 # W14a: 04 §9 "submission: deliverables exist" (W14 first attempt was accepted with none)
 def test_scope_only_task_without_deliverables_is_not_accepted(case):
     case.spec["checks"] = ["scope"]  # the only check passes on an empty result

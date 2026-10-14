@@ -401,12 +401,21 @@ def test_route_and_cli_version_are_recorded(case):
 
 @pytest.mark.parametrize("tool,expected", [  # W13b Codex review F3: adapter defaults are recorded
     ("codex", {"sandbox": "read-only", "approve_for_me": False, "defaults_applied": ["sandbox", "approve_for_me"]}),
-    ("claude", {"permission_mode": "acceptEdits", "defaults_applied": ["permission_mode"]}),
+    ("claude", {"permission_mode": "acceptEdits", "safe_mode": True,
+                "defaults_applied": ["permission_mode", "safe_mode"]}),
 ])
 def test_resolved_route_includes_adapter_defaults(tool, expected):
     from orchestrator.run_plan import _resolved_route
     assert _resolved_route({"tool": tool, "model": "m"}) == {"tool": tool, "model": "m", "effort": "cli-default",
                                                               **expected}
+
+
+def test_resolved_route_records_safe_mode_opt_out():  # W16c
+    from orchestrator.run_plan import _resolved_route
+    assert _resolved_route({"tool": "claude", "model": "m", "safe_mode": False,
+                            "permission_mode": "plan"}) == {
+        "tool": "claude", "model": "m", "effort": "cli-default", "permission_mode": "plan",
+        "safe_mode": False, "defaults_applied": []}
 
 
 def test_unavailable_cli_version_does_not_fail_the_run(case):

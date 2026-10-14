@@ -17,13 +17,15 @@
       "tool": "claude",
       "model": "claude-opus-5",
       "effort": "high",
-      "permission_mode": "acceptEdits"
+      "permission_mode": "acceptEdits",
+      "safe_mode": true
     },
     "claude-review": {
       "tool": "claude",
       "model": "claude-fable-5-1",
       "effort": "xhigh",
-      "permission_mode": "plan"
+      "permission_mode": "plan",
+      "safe_mode": true
     }
   },
   "limits": {

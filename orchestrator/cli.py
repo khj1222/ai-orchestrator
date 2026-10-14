@@ -137,7 +137,7 @@ def validate_task(spec: dict, config: dict, checks_dir: Path, *,
             paths = config.get("paths", {})
             if not isinstance(paths, dict) or not _text(paths.get(tool)):
                 errors.append(f"config.paths.{tool} must name the CLI executable")
-            for key in ("ephemeral", "skip_git_repo_check", "session_persistence", "approve_for_me"):
+            for key in ("ephemeral", "skip_git_repo_check", "session_persistence", "approve_for_me", "safe_mode"):
                 if key in route and type(route[key]) is not bool:
                     errors.append(f"route.{key} must be boolean")
             if tool == "codex" and route.get("sandbox", "read-only") not in (
