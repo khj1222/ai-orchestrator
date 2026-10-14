@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
 from typing import Literal
 
 
@@ -178,6 +179,23 @@ def _run_dir(root: Path, run_id: str) -> Path:
     return Path(root) / "runs" / _identifier(run_id)
 
 
+# W16d: on Windows another program (a virus scanner or search indexer, for example) can
+# briefly open a file just written here. Replacing or removing it then fails with a sharing
+# violation (PermissionError), so those two operations wait and try again for about 2 seconds.
+RETRY_SHARING_VIOLATIONS = os.name == "nt"
+SHARING_RETRY_DELAYS = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.6, 0.6)
+
+
+def _retry_sharing_violation(operation, *args):
+    """Call operation; on Windows retry a PermissionError after each delay, then let it raise."""
+    for delay in SHARING_RETRY_DELAYS if RETRY_SHARING_VIOLATIONS else ():
+        try:
+            return operation(*args)
+        except PermissionError:
+            time.sleep(delay)
+    return operation(*args)
+
+
 def _write_json(path: Path, payload: dict) -> None:
     # Serialize before creating a temporary file, so encoding errors leave no file.
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True,
@@ -192,10 +210,14 @@ def _write_json(path: Path, payload: dict) -> None:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        _retry_sharing_violation(os.replace, temporary, path)
+        temporary = None
     finally:
         if temporary is not None:
-            temporary.unlink(missing_ok=True)
+            try:
+                _retry_sharing_violation(temporary.unlink, True)
+            except OSError:
+                pass  # keep the temporary file rather than hide the error being raised
 
 
 def _read_json(path: Path) -> dict:
