@@ -232,6 +232,125 @@ def test_failed_replace_preserves_original_and_removes_temporary(tmp_path, monke
     assert list(path.parent.iterdir()) == [path]
 
 
+# W16d: a Windows sharing violation on the temporary file is retried for a bounded time.
+
+@pytest.fixture
+def no_wait(monkeypatch):
+    waits = []
+    monkeypatch.setattr(records, "RETRY_SHARING_VIOLATIONS", True)
+    monkeypatch.setattr(records.time, "sleep", waits.append)
+    return waits
+
+
+def saved_check(tmp_path):
+    check = example_check()
+    save_check(check, tmp_path, "run-1")
+    path = tmp_path / "runs/run-1/checks/contract-v1.attempt-1.json"
+    check.verdict = "fail"
+    return check, path, path.read_bytes()
+
+
+@pytest.mark.skipif(records.os.name != "nt", reason="Windows sharing violation")
+def test_replace_succeeds_after_another_handle_releases_temporary(tmp_path, monkeypatch):
+    import threading
+    check, path, _ = saved_check(tmp_path)
+    real_replace, calls, errors = records.os.replace, [], []
+
+    def replace(source, destination):
+        calls.append(source)
+        if len(calls) == 1:  # a real second handle without delete sharing, released shortly
+            handle = open(source, "rb")
+            threading.Timer(0.15, handle.close).start()
+        try:
+            return real_replace(source, destination)
+        except PermissionError as error:
+            errors.append(error.winerror)
+            raise
+
+    monkeypatch.setattr(records.os, "replace", replace)
+    save_check(check, tmp_path, "run-1")
+    assert errors and set(errors) == {32} and len(calls) == len(errors) + 1
+    assert load_checks(tmp_path, "run-1")[0].verdict == "fail"
+    assert list(path.parent.iterdir()) == [path]
+
+
+def test_persistent_sharing_violation_raises_replace_error_within_bound(tmp_path, monkeypatch, no_wait):
+    check, path, original = saved_check(tmp_path)
+    calls = []
+
+    def replace(source, destination):
+        calls.append(source)
+        raise PermissionError(32, "simulated sharing violation", str(source), None, str(destination))
+
+    monkeypatch.setattr(records.os, "replace", replace)
+    with pytest.raises(PermissionError, match="simulated sharing"):
+        save_check(check, tmp_path, "run-1")
+    assert len(calls) == len(records.SHARING_RETRY_DELAYS) + 1
+    assert no_wait == list(records.SHARING_RETRY_DELAYS) and 1.0 <= sum(no_wait) <= 3.0
+    assert path.read_bytes() == original
+    assert list(path.parent.iterdir()) == [path]
+
+
+def test_cleanup_failure_does_not_hide_replace_error(tmp_path, monkeypatch, no_wait):
+    check, path, original = saved_check(tmp_path)
+    unlinks = []
+
+    def replace(source, destination):
+        raise PermissionError(32, "simulated replace violation", str(source), None, str(destination))
+
+    def unlink(self, missing_ok=False):
+        unlinks.append(self)
+        raise PermissionError(32, "simulated unlink violation", str(self))
+
+    monkeypatch.setattr(records.os, "replace", replace)
+    monkeypatch.setattr(records.Path, "unlink", unlink)
+    with pytest.raises(PermissionError, match="simulated replace") as raised:
+        save_check(check, tmp_path, "run-1")
+    assert raised.value.filename2 == str(path)
+    assert len(unlinks) == len(records.SHARING_RETRY_DELAYS) + 1
+    assert path.read_bytes() == original
+    assert [p.suffix for p in path.parent.iterdir()].count(".tmp") == 1  # kept, not hidden
+
+
+def test_cleanup_retries_a_sharing_violation(tmp_path, monkeypatch, no_wait):
+    check, path, original = saved_check(tmp_path)
+    real_unlink, unlinks = records.Path.unlink, []
+
+    def replace(source, destination):
+        raise OSError("simulated replace failure")
+
+    def unlink(self, missing_ok=False):
+        unlinks.append(self)
+        if len(unlinks) < 3:
+            raise PermissionError(32, "simulated unlink violation", str(self))
+        return real_unlink(self, missing_ok)
+
+    monkeypatch.setattr(records.os, "replace", replace)
+    monkeypatch.setattr(records.Path, "unlink", unlink)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        save_check(check, tmp_path, "run-1")
+    assert len(unlinks) == 3 and list(path.parent.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("error,windows", [(OSError("other failure"), True),
+                                           (FileNotFoundError("missing"), True),
+                                           (PermissionError(13, "denied"), False)])
+def test_only_windows_sharing_violations_are_retried(tmp_path, monkeypatch, no_wait, error, windows):
+    check, path, original = saved_check(tmp_path)
+    monkeypatch.setattr(records, "RETRY_SHARING_VIOLATIONS", windows)
+    calls = []
+
+    def replace(source, destination):
+        calls.append(source)
+        raise error
+
+    monkeypatch.setattr(records.os, "replace", replace)
+    with pytest.raises(type(error)):
+        save_check(check, tmp_path, "run-1")
+    assert len(calls) == 1 and no_wait == []
+    assert path.read_bytes() == original and list(path.parent.iterdir()) == [path]
+
+
 def test_non_json_value_preserves_original(tmp_path):
     check = example_check()
     save_check(check, tmp_path, "run-1")
