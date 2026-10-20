@@ -191,8 +191,9 @@ def tool_executable(config, tool, config_dir: Path) -> Path:
 
 
 def _launchable(path: Path) -> bool:
-    # CreateProcess appends .exe to a program name that has no extension.
-    return path.is_file() or (os.name == "nt" and not path.suffix
+    # CreateProcess appends .exe to a program name that has no extension. A path
+    # without a name (a drive root such as D:\) names no file at all (W16h F1).
+    return path.is_file() or (os.name == "nt" and bool(path.name) and not path.suffix
                               and path.with_name(path.name + ".exe").is_file())
 
 
