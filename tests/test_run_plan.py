@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from orchestrator import cli, records
+from orchestrator import cli, records, run_plan
 from orchestrator.adapters.base import AttemptResult
 from orchestrator.run_plan import integration_ref
 
@@ -651,3 +651,48 @@ def test_plan_start_failure_names_executable_on_screen(case, capsys):
     note = lines[status[0] + 1]
     assert note.startswith("alpha: last attempt could not start (")
     assert Path(note.split("): ", 1)[1]).samefile(fake)
+
+
+# W16h (Codex post-review F2): the summary names one state by priority, but every
+# stopped task's start failure is shown. Records are built directly; nothing runs.
+
+def stopped_run(c, states):
+    write(c.plan_dir / "plan.v1.json", c.plan)
+    for task_id, value in c.specs.items():
+        write(c.plan_dir / "tasks" / f"{task_id}.json", value)
+        write(c.plan_dir / "instructions" / f"{task_id}.md", c.instructions[task_id])
+    plan = records.Run("pilot", "1", state="blocked", reason_code="review_pause",
+                       tasks={t: records.Task(t, "1", state=s) for t, s in states.items()})
+    plan.summary.update(plan_files=run_plan._plan_files(c.plan_dir / "plan.v1.json", c.plan),
+                        plan_base_commit=c.base, completed_tasks={"prep": c.base},
+                        tasks={t: {} for t in states}, merges=[])
+    for task_id, state in states.items():
+        if state == "planned":
+            continue
+        aid = "attempt-" + task_id
+        task = plan.tasks[task_id]
+        task.attempts = [aid]
+        task.reason_code = "attempt_budget_exhausted" if state == "failed" else "user_stop"
+        plan.attempts[aid] = records.Attempt(aid, task_id, "ok", state=state,
+                                             reason_code="start_failed" if state == "failed" else "user_stop")
+        if state == "failed":
+            write(c.root / "runs" / "pilot" / "attempts" / aid / "evidence" / "start-error.json",
+                  {"error_type": "OSError", "executable": f"{task_id}-program"})
+    records.save_run(plan, c.root)
+    store = cli.RunStore(c.root, "pilot")
+    return run_plan._finish(store, list(c.specs), run_plan._Integrator(store, c.repo, c.base))
+
+
+def test_plan_start_failure_notes_cover_every_failed_task(case, capsys):
+    assert stopped_run(case, {"alpha": "failed", "beta": "failed", "gamma": "planned"}) == 1
+    out = capsys.readouterr().out
+    assert "alpha: last attempt could not start (OSError): alpha-program" in out
+    assert "beta: last attempt could not start (OSError): beta-program" in out
+
+
+def test_plan_start_failure_note_survives_a_cancelled_summary(case, capsys):
+    assert stopped_run(case, {"alpha": "cancelled", "beta": "failed", "gamma": "planned"}) == 3
+    out = capsys.readouterr().out
+    assert "pilot: cancelled at alpha (user_stop)" in out  # summary and exit priority unchanged
+    assert "beta: last attempt could not start (OSError): beta-program" in out
+    assert "alpha: last attempt" not in out

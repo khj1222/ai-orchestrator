@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -431,3 +432,16 @@ def test_cli_validate_plan_warns_about_missing_cli_path_but_passes(case, monkeyp
     write(case.tmp / "config.json", case.config)
     assert cli.main(argv) == 0
     assert "warning:" not in capsys.readouterr().out
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the .exe fallback for names without an extension is Windows-only")
+def test_cli_validate_plan_drive_root_is_a_warning(case, monkeypatch, capsys):
+    # W16h (Codex post-review F1): a drive root has no file name; it must not raise.
+    run(case)
+    case.config["paths"]["codex"] = case.tmp.anchor
+    write(case.tmp / "config.json", case.config)
+    monkeypatch.setenv("ORCH_VERIFIER_PRIVATE", case.environ["ORCH_VERIFIER_PRIVATE"])
+    argv = ["validate-plan", str(case.plan_dir / "plan.v1.json"), "--repo", str(case.tmp)]
+    assert cli.main(argv) == 0
+    out = capsys.readouterr().out
+    assert "warning: config.paths.codex does not name an existing file:" in out and "ValueError" not in out

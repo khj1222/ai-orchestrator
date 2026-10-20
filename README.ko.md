@@ -44,7 +44,7 @@ PowerShell이 `Activate.ps1` 실행을 거부하면 `Set-ExecutionPolicy -Scope 
 
 `config.example.json`을 `config.json`(git 제외)으로 복사해 CLI 절대 경로와 모델 ID를 채운다.
 - `paths`의 경로는 실행기가 실제로 돌아갈 셸에서 확인한 것이어야 한다. 버전·해시 폴더는 앱 업데이트로 바뀔 수 있다. 데스크톱 앱이 MSIX 패키지로 설치된 경우 그 앱이 띄운 프로세스가 보는 AppData 경로는 일반 셸과 다를 수 있다.
-- Codex 앱은 업데이트할 때마다 경로의 `bin\<hash>` 폴더 이름을 바꾸므로 업데이트 뒤에는 `paths.codex`를 다시 확인한다. route가 쓰는 CLI 경로가 없으면 `run-task`·`run-plan`은 시작하지 않고 그 설정 키와 경로를 알린다. `validate`·`validate-plan`은 같은 내용을 경고로 출력하되 검증은 통과시킨다.
+- Codex 앱 경로의 `bin\<hash>` 폴더 이름은 앱 업데이트로 바뀔 수 있으므로 업데이트 뒤에는 `paths.codex`를 다시 확인한다. route가 쓰는 CLI 경로가 없으면 `run-task`·`run-plan`은 새 실행을 시작하지 않고 그 설정 키와 경로를 알린다. 끝난 계획의 보고 재작성에는 CLI가 필요 없다. 다른 정의 검사를 통과했다면 `validate`·`validate-plan`은 같은 내용을 경고로 출력하고 검증은 통과시킨다.
 - `routes`의 각 키는 작업 명세의 `route_id`가 가리키는 실행 설정이다. 모델은 전체 ID로 적는다.
 - Codex의 `approve_for_me: true`는 CLI의 `--approve-for-me`를 쓴다. `workspace-write`에서만 허용하며 샌드박스를 해제하지 않는다. Git worktree 메타데이터가 작업 공간 밖에 있으면 결과 커밋에 필요할 수 있다. CLI 지원 여부는 `codex exec --help`로 확인한다.
 - Claude Code 작업자는 `allowed_tools`에 `Bash(git:*)`·`Bash(python:*)` 같은 허용 패턴이 있어야 테스트와 커밋을 할 수 있다. 이 앱(Claude Code) 안에서 실행기를 띄우면 `CLAUDECODE`·`CLAUDE_CODE_ENTRYPOINT`를 `strip_env`에 넣어 중첩 세션을 피한다.

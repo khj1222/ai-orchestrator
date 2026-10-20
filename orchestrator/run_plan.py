@@ -301,10 +301,13 @@ def _finish(store: RunStore, executable: list[str], integrator: _Integrator) -> 
         if stuck:
             reason = run.tasks[stuck[0]].reason_code or state
             print(f"{run.run_id}: {state} at {', '.join(stuck)} ({reason})")
-            for task_id in stuck:
-                note = start_failure_note(store, run, task_id)
-                if note:
-                    print(note)
+            # The summary names one state by priority; start failures are shown for
+            # every stopped task, whatever its state (W16h F2).
+            for task_id in executable:
+                if run.tasks[task_id].state in {"cancelled", "failed", "blocked"}:
+                    note = start_failure_note(store, run, task_id)
+                    if note:
+                        print(note)
             return _close(store, run, EXIT_CODES[state], reason)
     if run.state == "blocked":
         waiting = [t for t in executable if run.tasks[t].state == "accepted"]

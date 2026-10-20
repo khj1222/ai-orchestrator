@@ -752,3 +752,42 @@ def test_no_start_failure_note_for_success_or_check_failure(case, capsys):
     assert "could not start" not in capsys.readouterr().out
     run, task = loaded(case)
     assert cli.start_failure_note(cli.RunStore(case.root, case.spec["run_id"]), run, task.task_id) is None
+
+
+# W16h (Codex post-review of W16f/W16g): a path without a file name, a folder, and
+# extra start-error fields. No model CLI ever runs.
+
+@pytest.mark.skipif(os.name != "nt", reason="the .exe fallback for names without an extension is Windows-only")
+def test_drive_root_cli_path_is_a_warning_and_a_clean_refusal(case, capsys):
+    case.config["paths"]["codex"] = case.repo.anchor  # a drive root has no file name
+    assert cli.validate_task(case.spec, case.config, case.checks) == []
+    assert cli.main(args(case, "validate")) == 0
+    out = capsys.readouterr().out
+    assert "warning: config.paths.codex does not name an existing file:" in out and "ValueError" not in out
+    assert cli.main(args(case)) == 1
+    out = capsys.readouterr().out
+    assert "CLIError: config.paths.codex does not name an existing file:" in out and "ValueError" not in out
+    assert not (case.root / "runs").exists()
+
+
+def test_folder_is_not_a_cli_executable(case, capsys):
+    folder = case.config_path.parent / "Codex" / "bin" / "hash"
+    folder.mkdir(parents=True)
+    case.config["paths"]["codex"] = str(folder)
+    assert cli.main(args(case, "validate")) == 0
+    assert f"warning: config.paths.codex does not name an existing file: {folder}" in capsys.readouterr().out
+    assert cli.main(args(case)) == 1
+    assert f"config.paths.codex does not name an existing file: {folder}" in capsys.readouterr().out
+    assert not (case.root / "runs").exists()
+
+
+def test_start_failure_note_shows_only_error_type_and_executable(case):
+    run = records.Run("run-1", "1", tasks={
+        "task-1": records.Task("task-1", "1", state="failed", attempts=["a"])},
+        attempts={"a": records.Attempt("a", "task-1", "offline", state="failed", reason_code="start_failed")})
+    store = cli.RunStore(case.root, "run-1")
+    folder = store.directory / "attempts" / "a" / "evidence"
+    folder.mkdir(parents=True)
+    write(folder / "start-error.json", {"error_type": "OSError", "executable": "fake-program",
+                                        "argv": ["SECRET-ARGV"], "environment": "SECRET-ENV", "prompt": "SECRET-PROMPT"})
+    assert cli.start_failure_note(store, run, "task-1") == "task-1: last attempt could not start (OSError): fake-program"
