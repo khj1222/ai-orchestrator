@@ -413,3 +413,21 @@ def test_cli_validate_plan(case, monkeypatch, capsys):
     write(case.plan_dir / "plan.v1.json", bad)
     assert cli.main(argv) == 1
     assert "protocol_hash" in capsys.readouterr().out
+
+
+def test_cli_validate_plan_warns_about_missing_cli_path_but_passes(case, monkeypatch, capsys):
+    # W16g: case.config names "codex.exe" next to config.json, which does not exist.
+    run(case)
+    write(case.tmp / "config.json", case.config)
+    monkeypatch.setenv("ORCH_VERIFIER_PRIVATE", case.environ["ORCH_VERIFIER_PRIVATE"])
+    argv = ["validate-plan", str(case.plan_dir / "plan.v1.json"), "--repo", str(case.tmp)]
+    assert cli.main(argv) == 0
+    out = capsys.readouterr().out
+    assert "Valid plan: 4 tasks (3 executable)" in out
+    assert f"warning: config.paths.codex does not name an existing file: {case.tmp / 'codex.exe'}" in out
+    (case.tmp / "codex.exe").write_text("placeholder\n", encoding="utf-8")
+    case.config["paths"]["claude"] = str(case.tmp / "missing-claude.exe")
+    case.config["routes"]["claude-unused"] = {"tool": "claude", "model": "m"}
+    write(case.tmp / "config.json", case.config)
+    assert cli.main(argv) == 0
+    assert "warning:" not in capsys.readouterr().out

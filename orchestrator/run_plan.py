@@ -27,8 +27,8 @@ from . import records, workspace
 from .adapters.claude import ClaudeSpec
 from .adapters.codex import CodexSpec
 from .cli import (EXIT_CODES, CLIError, RunStore, _attempt_loop, _git, _lock, _read, _ready,
-                  _recover, adapter_for, require_tool_paths, stop_task, tool_executable,
-                  unfinished_tasks)
+                  _recover, adapter_for, require_tool_paths, start_failure_note, stop_task,
+                  tool_executable, unfinished_tasks)
 from .plan import PublicationSourceError, read_publication_source, validate_plan
 
 MAX_PARALLEL = 2
@@ -301,6 +301,10 @@ def _finish(store: RunStore, executable: list[str], integrator: _Integrator) -> 
         if stuck:
             reason = run.tasks[stuck[0]].reason_code or state
             print(f"{run.run_id}: {state} at {', '.join(stuck)} ({reason})")
+            for task_id in stuck:
+                note = start_failure_note(store, run, task_id)
+                if note:
+                    print(note)
             return _close(store, run, EXIT_CODES[state], reason)
     if run.state == "blocked":
         waiting = [t for t in executable if run.tasks[t].state == "accepted"]

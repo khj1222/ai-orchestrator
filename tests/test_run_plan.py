@@ -637,3 +637,17 @@ def test_plan_does_not_check_a_tool_no_task_uses(case, capsys):
     run_ = loaded(case)
     assert run_.tasks["alpha"].reason_code == "attempt_budget_exhausted"
     assert all(run_.attempts[a].reason_code == "start_failed" for a in run_.tasks["alpha"].attempts)
+
+
+# W16g: a plan that fails because a worker could not start names the executable.
+
+def test_plan_start_failure_names_executable_on_screen(case, capsys):
+    fake = not_a_program(case.tmp / "codex.txt")
+    case.config["paths"]["codex"] = str(fake)
+    assert run(case, adapter_factory=cli.adapter_for) == 1
+    lines = capsys.readouterr().out.splitlines()
+    status = [i for i, line in enumerate(lines) if "failed at alpha" in line]
+    assert len(status) == 1
+    note = lines[status[0] + 1]
+    assert note.startswith("alpha: last attempt could not start (")
+    assert Path(note.split("): ", 1)[1]).samefile(fake)
