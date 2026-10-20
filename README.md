@@ -51,7 +51,9 @@ Does not:
 - For real runs: the official CLIs installed and logged in with your own accounts. Both Anthropic and OpenAI
   document API keys as the recommended authentication for automated and third-party use. If you use your
   subscription login instead, check your providers' terms for automated use; that is your responsibility. Do not
-  share one login between machines or run it in public CI.
+  share one login between machines or run it in public CI. Anthropic's Claude Code legal page says advertised Pro
+  and Max usage limits assume ordinary, individual use. This tool starts many CLI runs, up to two at once with
+  `--parallel 2`, so an API key fits repeated or parallel runs better than a subscription login.
 - Commands below are for Windows PowerShell.
 
 ```powershell
