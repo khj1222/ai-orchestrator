@@ -683,3 +683,72 @@ def test_unfinished_tasks_counts_unreadable_records_as_unfinished(case):
     assert cli.unfinished_tasks(store, [*states, "f"]) == ["d", "e", "f"]
     (store.directory / "summary.json").write_text("{not json", encoding="utf-8")
     assert cli.unfinished_tasks(store, ["a", "b"]) == ["a", "b"]
+
+
+# W16g: validate warns about a missing CLI path without failing, and a start failure
+# names the executable on screen. No model CLI ever runs.
+
+def test_validate_warns_about_missing_cli_path_but_passes(case, capsys):
+    missing = case.config_path.parent / "Codex" / "bin" / "old-hash" / "codex.exe"
+    case.config["paths"]["codex"] = str(missing)
+    assert cli.main(args(case, "validate")) == 0
+    out = capsys.readouterr().out
+    assert "Valid task specification." in out
+    assert f"warning: config.paths.codex does not name an existing file: {missing}" in out
+    assert "<hash>" in out
+    assert not case.root.exists()
+
+
+def test_validate_does_not_warn_about_present_or_unused_cli(case, capsys):
+    not_a_program(case.config_path.parent / "codex.txt")
+    case.config["paths"].update(codex="codex.txt", claude=str(case.config_path.parent / "missing-claude.exe"))
+    case.config["routes"]["unused-claude"] = {"tool": "claude", "model": "claude-opus-5"}
+    assert cli.main(args(case, "validate")) == 0
+    assert "warning:" not in capsys.readouterr().out
+
+
+def test_start_failure_names_executable_on_screen(case, capsys):
+    fake = not_a_program(case.config_path.parent / "bin" / "codex-not-a-program.txt")
+    case.config["paths"]["codex"] = str(fake)
+    assert cli.main(args(case)) == 1
+    lines = capsys.readouterr().out.splitlines()
+    status = [i for i, line in enumerate(lines) if line.endswith("failed (attempt_budget_exhausted)")]
+    assert len(status) == 1
+    note = lines[status[0] + 1]
+    assert note.startswith(f"{case.spec['task_id']}: last attempt could not start (")
+    assert Path(note.split("): ", 1)[1]).samefile(fake)
+
+
+def test_start_failure_note_reads_only_the_last_attempt(case, monkeypatch, capsys):
+    calls = []
+
+    def factory(route, config, evidence_dir, config_dir):
+        calls.append(evidence_dir)
+        if len(calls) == 2:
+            raise cli.CLIError("injected adapter failure")
+        return dummy_factory(route, config, evidence_dir, config_dir)
+
+    monkeypatch.setattr(process, "start", lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("x")))
+    assert cli.main(args(case), adapter_factory=factory) == 1
+    out = capsys.readouterr().out
+    assert f"{case.spec['task_id']}: last attempt could not start (CLIError)\n" in out
+    assert sys.executable not in out  # the first attempt's executable is not the last attempt's
+
+
+def test_start_failure_note_is_left_out_when_evidence_is_unreadable(case):
+    fake = not_a_program(case.config_path.parent / "codex.txt")
+    case.config["paths"]["codex"] = str(fake)
+    assert cli.main(args(case)) == 1
+    run, task = loaded(case)
+    store = cli.RunStore(case.root, case.spec["run_id"])
+    assert cli.start_failure_note(store, run, task.task_id) is not None
+    (evidence(case, run.attempts[task.attempts[-1]]) / "start-error.json").write_text("{bad", encoding="utf-8")
+    assert cli.start_failure_note(store, run, task.task_id) is None
+    assert cli.start_failure_note(store, run, "no-such-task") is None
+
+
+def test_no_start_failure_note_for_success_or_check_failure(case, capsys):
+    assert execute(case) == 0
+    assert "could not start" not in capsys.readouterr().out
+    run, task = loaded(case)
+    assert cli.start_failure_note(cli.RunStore(case.root, case.spec["run_id"]), run, task.task_id) is None

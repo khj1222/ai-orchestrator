@@ -196,12 +196,8 @@ def _launchable(path: Path) -> bool:
                               and path.with_name(path.name + ".exe").is_file())
 
 
-def require_tool_paths(config, route_ids, config_dir: Path) -> None:
-    """Refuse to start before any run record when a CLI the routes use is missing (W16f).
-
-    Only the tools of the given routes are checked. A missing executable would
-    otherwise fail every attempt at launch and spend the attempt budget.
-    """
+def missing_tool_paths(config, route_ids, config_dir: Path) -> list[str]:
+    """One message per tool of the given routes whose config.paths entry names no file."""
     errors = []
     for tool in sorted({config["routes"][r]["tool"] for r in route_ids}):
         path = tool_executable(config, tool, config_dir)
@@ -209,8 +205,42 @@ def require_tool_paths(config, route_ids, config_dir: Path) -> None:
             hint = (" (the Codex app renames its bin\\<hash> folder when it updates; check the path again)"
                     if tool == "codex" else "")
             errors.append(f"config.paths.{tool} does not name an existing file: {path}{hint}")
+    return errors
+
+
+def require_tool_paths(config, route_ids, config_dir: Path) -> None:
+    """Refuse to start before any run record when a CLI the routes use is missing (W16f).
+
+    Only the tools of the given routes are checked. A missing executable would
+    otherwise fail every attempt at launch and spend the attempt budget.
+    """
+    errors = missing_tool_paths(config, route_ids, config_dir)
     if errors:
         raise CLIError("\n".join(errors))
+
+
+def start_failure_note(store, run, task_id) -> str | None:
+    """One line on why the task's last attempt could not start, or None (W16g).
+
+    Shows only start-error.json's error type and executable, never the rest of argv,
+    the environment or the prompt. Unreadable evidence leaves the line out.
+    """
+    task = run.tasks.get(task_id)
+    if task is None or not task.attempts:
+        return None
+    attempt = run.attempts.get(task.attempts[-1])
+    if attempt is None or attempt.reason_code != "start_failed":
+        return None
+    try:
+        failure = _read(store.directory / "attempts" / attempt.attempt_id / "evidence" / "start-error.json")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(failure, dict):
+        return None
+    note = f"{task_id}: last attempt could not start ({failure.get('error_type', 'unknown error')})"
+    if isinstance(failure.get("executable"), str):
+        note += f": {failure['executable']}"
+    return note
 
 
 FINISHED_TASK_STATES = frozenset({"accepted", "integrated", "failed", "cancelled"})
@@ -823,14 +853,20 @@ def main(argv=None, *, adapter_factory=adapter_for) -> int:
                             parallel=args.parallel, adapter_factory=adapter_factory)
         if args.command == "validate-plan":
             from .plan import validate_plan  # plan imports this module
-            config = _read((args.config or repo / "config.json").resolve())
+            config_path = (args.config or repo / "config.json").resolve()
+            config = _read(config_path)
             errors, order = validate_plan(args.plan, config, (args.checks_dir or repo / "checks").resolve())
             if errors:
                 print("\n".join(errors))
                 return 1
-            executable = sum("status" not in t for t in _read(args.plan)["tasks"])
+            tasks = _read(args.plan)["tasks"]
+            executable = sum("status" not in t for t in tasks)
             print(f"Valid plan: {len(order)} tasks ({executable} executable)")
             print("order: " + " -> ".join(order))
+            plan_dir = Path(args.plan).resolve().parent
+            routes = [_read(plan_dir / t["spec"])["route_id"] for t in tasks if "spec" in t]
+            for warning in missing_tool_paths(config, routes, config_path.parent):
+                print("warning: " + warning)
             return 0
         if args.command == "status":
             store = RunStore(root, args.run_id)
@@ -850,12 +886,17 @@ def main(argv=None, *, adapter_factory=adapter_for) -> int:
             return 1
         if args.command == "validate":
             print("Valid task specification.")
+            for warning in missing_tool_paths(config, [spec["route_id"]], config_path.parent):
+                print("warning: " + warning)
             return 0
         code = run_task(spec, config, repo, root, checks_dir, config_path.parent,
                         adapter_factory=adapter_factory)
         run = records.load_run(spec["run_id"], root)
         task = run.tasks[spec["task_id"]]
         print(f"{run.run_id}/{task.task_id}: {task.state} ({task.reason_code or 'ok'})")
+        note = start_failure_note(RunStore(root, spec["run_id"]), run, task.task_id)
+        if note:
+            print(note)
         if run.summary.get("detail"):
             print(run.summary["detail"])
         return code
