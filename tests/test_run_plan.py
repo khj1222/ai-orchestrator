@@ -95,7 +95,7 @@ def case(tmp_path):
     return c
 
 
-def run(c, *extra):
+def run(c, *extra, adapter_factory=factory):
     write(c.plan_dir / "plan.v1.json", c.plan)
     for task_id, value in c.specs.items():
         write(c.plan_dir / "tasks" / f"{task_id}.json", value)
@@ -104,7 +104,7 @@ def run(c, *extra):
     write(c.tmp / "config.json", c.config)
     argv = ["run-plan", str(c.plan_dir / "plan.v1.json"), "--repo", str(c.repo), "--config",
             str(c.tmp / "config.json"), "--checks-dir", str(c.checks), "--run-root", str(c.root), *extra]
-    return cli.main(argv, adapter_factory=factory)
+    return cli.main(argv, adapter_factory=adapter_factory)
 
 
 def loaded(c):
@@ -595,3 +595,45 @@ def test_missing_deliverable_feedback_lets_the_retry_succeed(case):
     assert run(case) == 0
     alpha = loaded(case).tasks["alpha"]
     assert alpha.state == "integrated" and len(alpha.attempts) == 2
+
+
+# W16f: the CLI paths of the routes the plan's executable tasks use are checked
+# before any run record. The real adapter_for runs, but every configured "CLI" is
+# missing or a text file that cannot start, so no model CLI ever runs.
+
+def not_a_program(path):
+    write(path, "not a program\n")
+    return path
+
+
+def test_missing_cli_path_refuses_plan_before_any_record(case, capsys):
+    missing = case.tmp / "Codex" / "bin" / "old-hash" / "codex.exe"
+    case.config["paths"]["codex"] = str(missing)
+    assert run(case, adapter_factory=cli.adapter_for) == 1
+    out = capsys.readouterr().out
+    assert f"config.paths.codex does not name an existing file: {missing}" in out and "<hash>" in out
+    assert not (case.root / "runs").exists()
+
+
+def test_plan_checks_the_union_of_its_routes_tools(case, capsys):
+    not_a_program(case.tmp / "codex.txt")
+    missing = case.tmp / "missing-claude.exe"
+    case.config["paths"].update(codex="codex.txt", claude=str(missing))
+    case.config["routes"]["claude-ok"] = {"tool": "claude", "model": "claude-opus-5"}
+    case.specs["gamma"]["route_id"] = "claude-ok"  # only the last task uses Claude
+    assert run(case, adapter_factory=cli.adapter_for) == 1
+    out = capsys.readouterr().out
+    assert f"config.paths.claude does not name an existing file: {missing}" in out
+    assert "config.paths.codex" not in out
+    assert not (case.root / "runs").exists()
+
+
+def test_plan_does_not_check_a_tool_no_task_uses(case, capsys):
+    not_a_program(case.tmp / "codex.txt")
+    case.config["paths"].update(codex="codex.txt", claude=str(case.tmp / "missing-claude.exe"))
+    case.config["routes"]["claude-unused"] = {"tool": "claude", "model": "claude-opus-5"}
+    assert run(case, adapter_factory=cli.adapter_for) == 1  # the text file cannot start
+    assert "config.paths.claude" not in capsys.readouterr().out
+    run_ = loaded(case)
+    assert run_.tasks["alpha"].reason_code == "attempt_budget_exhausted"
+    assert all(run_.attempts[a].reason_code == "start_failed" for a in run_.tasks["alpha"].attempts)

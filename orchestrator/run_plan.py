@@ -27,7 +27,8 @@ from . import records, workspace
 from .adapters.claude import ClaudeSpec
 from .adapters.codex import CodexSpec
 from .cli import (EXIT_CODES, CLIError, RunStore, _attempt_loop, _git, _lock, _read, _ready,
-                  _recover, adapter_for, stop_task)
+                  _recover, adapter_for, require_tool_paths, stop_task, tool_executable,
+                  unfinished_tasks)
 from .plan import PublicationSourceError, read_publication_source, validate_plan
 
 MAX_PARALLEL = 2
@@ -151,6 +152,9 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
              for t, e in entries.items() if "instructions" in e}
     executable = [t for t in order if t in specs]
     store = RunStore(root, plan["run_id"])
+    if adapter_factory is adapter_for:  # W16f: an injected factory chooses its own executable
+        require_tool_paths(config, [specs[t]["route_id"] for t in unfinished_tasks(store, executable)],
+                           config_dir)
     plan_files = _plan_files(plan_path, plan)
     integrator = _Integrator(store, repo, plan["base_commit"])
 
@@ -309,9 +313,7 @@ def _finish(store: RunStore, executable: list[str], integrator: _Integrator) -> 
 def _cli_version(config: dict, tool: str, config_dir: Path) -> str:
     """First line of `<cli> --version`, or "unavailable"; never fails the run."""
     try:
-        executable = Path(config["paths"][tool])
-        if not executable.is_absolute():
-            executable = Path(config_dir) / executable
+        executable = tool_executable(config, tool, config_dir)
         result = subprocess.run([str(executable), "--version"], capture_output=True, timeout=30,
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         line = result.stdout.decode("utf-8", "replace").strip().splitlines()
