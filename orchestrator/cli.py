@@ -184,6 +184,51 @@ def validate_task(spec: dict, config: dict, checks_dir: Path, *,
     return errors
 
 
+def tool_executable(config, tool, config_dir: Path) -> Path:
+    """config.paths.<tool>; a relative path resolves against the config folder, not cwd."""
+    executable = Path(config["paths"][tool])
+    return executable if executable.is_absolute() else Path(config_dir) / executable
+
+
+def _launchable(path: Path) -> bool:
+    # CreateProcess appends .exe to a program name that has no extension.
+    return path.is_file() or (os.name == "nt" and not path.suffix
+                              and path.with_name(path.name + ".exe").is_file())
+
+
+def require_tool_paths(config, route_ids, config_dir: Path) -> None:
+    """Refuse to start before any run record when a CLI the routes use is missing (W16f).
+
+    Only the tools of the given routes are checked. A missing executable would
+    otherwise fail every attempt at launch and spend the attempt budget.
+    """
+    errors = []
+    for tool in sorted({config["routes"][r]["tool"] for r in route_ids}):
+        path = tool_executable(config, tool, config_dir)
+        if not _launchable(path):
+            hint = (" (the Codex app renames its bin\\<hash> folder when it updates; check the path again)"
+                    if tool == "codex" else "")
+            errors.append(f"config.paths.{tool} does not name an existing file: {path}{hint}")
+    if errors:
+        raise CLIError("\n".join(errors))
+
+
+FINISHED_TASK_STATES = frozenset({"accepted", "integrated", "failed", "cancelled"})
+
+
+def unfinished_tasks(store, task_ids) -> list[str]:
+    """Tasks that may still start a worker: all except those the existing records show
+    finished (a finished task never restarts). Read-only and without the records lock;
+    when the records cannot be read every task counts as unfinished."""
+    try:
+        run = store.load() if (store.directory / "summary.json").is_file() else None
+    except (OSError, ValueError, KeyError, TypeError):
+        run = None
+    if run is None:
+        return list(task_ids)
+    return [t for t in task_ids if t not in run.tasks or run.tasks[t].state not in FINISHED_TASK_STATES]
+
+
 def adapter_for(route, config, evidence: Path, config_dir: Path):
     """Resolve one installed adapter, keeping all auxiliary outputs outside worktree.
 
@@ -195,9 +240,7 @@ def adapter_for(route, config, evidence: Path, config_dir: Path):
     alias = values.pop("model_reasoning_effort", None)
     if alias is not None:
         values.setdefault("effort", alias)
-    executable = Path(config["paths"][tool])
-    if not executable.is_absolute():
-        executable = config_dir / executable
+    executable = tool_executable(config, tool, config_dir)
     schema_key = "output_schema_path" if tool == "codex" else "json_schema_path"
     schema = values.pop(schema_key, None)
     if schema is not None:
@@ -410,8 +453,12 @@ def run_task(spec, config, repo: Path, root: Path, checks_dir: Path, config_dir:
     Verification fail is terminal as required by W7. Timeout/start failures may
     consume retries. A timeout with unknown termination never retries. Artifact
     commits are retained by refs/orchestrator/<attempt-id> before worktree removal.
+    An injected adapter_factory (offline tests) chooses its own executable, so the
+    CLI path check applies to adapter_for only.
     """
     store = RunStore(root, spec["run_id"])
+    if adapter_factory is adapter_for and unfinished_tasks(store, [spec["task_id"]]):
+        require_tool_paths(config, [spec["route_id"]], config_dir)
     with _lock(store.directory / ".runner.lock", timeout=0):
         return _run_owned(store, spec, config, repo.resolve(), checks_dir.resolve(),
                           config_dir.resolve(), adapter_factory)
@@ -511,7 +558,7 @@ def _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory, *,
     limits = {**config.get("limits", {}), **spec.get("limits", {})}
     budget, timeout = limits["max_attempts_total"], limits["timeout_seconds"]
     while True:
-        handle = None
+        handle = argv = None
         with store.lock():
             run = store.load()
             task = run.tasks[spec["task_id"]]
@@ -560,7 +607,11 @@ def _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory, *,
                     if stopped["state"] != "stopped":
                         _mark_unknown(store, run, attempt, "start_cleanup_unknown")
                         return finish(run, task, "blocked", "start_cleanup_unknown")
-                _write(evidence / "start-error.json", {"error_type": type(error).__name__})
+                failure = {"error_type": type(error).__name__}
+                if argv:
+                    # Only the program it tried to start: never the rest of argv, the environment or the prompt.
+                    failure["executable"] = argv[0]
+                _write(evidence / "start-error.json", failure)
                 store.move(run, attempt, "failed", "start_failed")
                 _cleanup(store, run, attempt, repo)
                 continue

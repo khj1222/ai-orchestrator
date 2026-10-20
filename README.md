@@ -66,6 +66,8 @@ If PowerShell refuses to run `Activate.ps1`, allow it for the current shell only
 `Set-ExecutionPolicy -Scope Process RemoteSigned`.
 
 Copy `config.example.json` to `config.json` (git-ignored) and fill in absolute CLI paths and model IDs.
+The Codex app renames the `bin\<hash>` folder in its path whenever it updates, so check `paths.codex` again after
+an update; `run-task` and `run-plan` refuse to start, naming the key and path, when a CLI a route uses is missing.
 
 Claude routes run with `--safe-mode` by default (`"safe_mode": true`, Claude Code 2.1.169 or later). It turns off
 hooks, MCP servers, plugins, skills, `CLAUDE.md` and auto memory, both your own and any `.claude/settings.json` or

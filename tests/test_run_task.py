@@ -578,3 +578,108 @@ def test_tree_inspection_error_blocks_instead_of_accepting(case, monkeypatch):
     task = loaded(case)[1]
     assert task.state == "blocked" and task.reason_code == "deliverable_inspection_error"
     assert task.accepted_attempt_id is None
+
+
+# W16f: CLI path check before any run record. These use the real adapter_for, but
+# the configured "CLI" is either missing or a text file that cannot start, so no
+# model CLI ever runs.
+
+def not_a_program(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("not a program\n", encoding="utf-8")
+    return path
+
+
+def test_missing_cli_path_refuses_before_any_record(case, capsys):
+    missing = case.config_path.parent / "Codex" / "bin" / "old-hash" / "codex.exe"
+    case.config["paths"]["codex"] = str(missing)
+    assert cli.main(args(case)) == 1
+    out = capsys.readouterr().out
+    assert f"config.paths.codex does not name an existing file: {missing}" in out
+    assert "<hash>" in out
+    assert not (case.root / "runs").exists()  # no run record, lock file, attempt or budget
+
+
+def test_existing_cli_path_passes_check_and_start_error_names_executable(case, monkeypatch):
+    fake = not_a_program(case.config_path.parent / "bin" / "codex-not-a-program.txt")
+    case.config["paths"]["codex"] = "bin/codex-not-a-program.txt"  # relative to the config folder
+    elsewhere = case.config_path.parent / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)  # the current folder must not matter
+    assert cli.main(args(case)) == 1
+    run, task = loaded(case)
+    assert (task.state, task.reason_code, len(task.attempts)) == ("failed", "attempt_budget_exhausted", 2)
+    for aid in task.attempts:
+        assert run.attempts[aid].reason_code == "start_failed"
+        error = json.loads((evidence(case, run.attempts[aid]) / "start-error.json").read_text(encoding="utf-8"))
+        assert set(error) == {"error_type", "executable"}
+        assert Path(error["executable"]).samefile(fake)
+
+
+def test_relative_cli_path_does_not_resolve_against_cwd(case, monkeypatch, capsys):
+    elsewhere = case.config_path.parent / "elsewhere"
+    not_a_program(elsewhere / "bin" / "codex.exe")
+    monkeypatch.chdir(elsewhere)
+    case.config["paths"]["codex"] = "bin/codex.exe"  # exists below cwd, not below the config folder
+    assert cli.main(args(case)) == 1
+    out = capsys.readouterr().out
+    assert "config.paths.codex does not name an existing file: " in out
+    assert str(case.config_path.parent / "bin" / "codex.exe") in out
+    assert not (case.root / "runs").exists()
+
+
+def test_unused_tool_path_is_not_checked(case, capsys):
+    not_a_program(case.config_path.parent / "codex.txt")
+    case.config["paths"].update(codex="codex.txt", claude=str(case.config_path.parent / "missing-claude.exe"))
+    case.config["routes"]["unused-claude"] = {"tool": "claude", "model": "claude-opus-5"}
+    assert cli.main(args(case)) == 1
+    assert "config.paths.claude" not in capsys.readouterr().out
+    run, task = loaded(case)
+    assert len(task.attempts) == 2 and task.reason_code == "attempt_budget_exhausted"
+
+
+def test_finished_task_rerun_needs_no_cli(case):
+    assert execute(case) == 0  # offline worker
+    case.config["paths"]["codex"] = str(case.config_path.parent / "gone" / "codex.exe")
+    assert cli.main(args(case)) == 0  # accepted tasks never restart, so no CLI is needed
+    assert loaded(case)[1].state == "accepted"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="CreateProcess appends .exe to a name without an extension")
+def test_extensionless_cli_path_accepts_exe_on_windows(case):
+    not_a_program(case.config_path.parent / "codex.exe")
+    case.config["paths"]["codex"] = str(case.config_path.parent / "codex")
+    assert cli.main(args(case)) == 1
+    assert len(loaded(case)[1].attempts) == 2  # passed the check; the text file then fails to start
+
+
+def test_start_error_records_only_the_executable_and_never_a_stale_one(case, monkeypatch):
+    calls = []
+
+    def factory(route, config, evidence_dir, config_dir):
+        calls.append(evidence_dir)
+        if len(calls) == 2:
+            raise cli.CLIError("injected adapter failure")
+        return dummy_factory(route, config, evidence_dir, config_dir)
+
+    def fail(*a, **kw):
+        raise FileNotFoundError("injected launch failure")
+
+    monkeypatch.setattr(process, "start", fail)
+    assert cli.main(args(case), adapter_factory=factory) == 1
+    run, task = loaded(case)
+    first, second = (json.loads((evidence(case, run.attempts[a]) / "start-error.json").read_text(encoding="utf-8"))
+                     for a in task.attempts)
+    assert first == {"error_type": "FileNotFoundError", "executable": sys.executable}
+    assert second == {"error_type": "CLIError"}  # the command was never built in this attempt
+
+
+def test_unfinished_tasks_counts_unreadable_records_as_unfinished(case):
+    store = cli.RunStore(case.root, "run-1")
+    assert cli.unfinished_tasks(store, ["a", "b"]) == ["a", "b"]  # no records yet
+    states = {"a": "integrated", "b": "failed", "c": "cancelled", "d": "blocked", "e": "planned"}
+    records.save_run(records.Run("run-1", "1", tasks={t: records.Task(t, "1", state=s)
+                                                      for t, s in states.items()}), case.root)
+    assert cli.unfinished_tasks(store, [*states, "f"]) == ["d", "e", "f"]
+    (store.directory / "summary.json").write_text("{not json", encoding="utf-8")
+    assert cli.unfinished_tasks(store, ["a", "b"]) == ["a", "b"]
