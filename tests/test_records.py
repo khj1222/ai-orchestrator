@@ -315,8 +315,10 @@ def test_cleanup_failure_does_not_hide_replace_error(tmp_path, monkeypatch, no_w
     assert raised.value.filename2 == str(path)
     assert len(unlinks) == MAX_CALLS_PER_OPERATION
     # replace and cleanup each have their own budget, so the worst case waits about 4 seconds
-    assert len(no_wait) == 2 * (MAX_CALLS_PER_OPERATION - 1)
-    assert sum(no_wait) <= 2 * MAX_WAIT_PER_OPERATION
+    waits_per_operation = MAX_CALLS_PER_OPERATION - 1
+    assert len(no_wait) == 2 * waits_per_operation
+    assert sum(no_wait[:waits_per_operation]) <= MAX_WAIT_PER_OPERATION  # replace
+    assert sum(no_wait[waits_per_operation:]) <= MAX_WAIT_PER_OPERATION  # cleanup
     assert path.read_bytes() == original
     assert [p.suffix for p in path.parent.iterdir()].count(".tmp") == 1  # kept, not hidden
 
