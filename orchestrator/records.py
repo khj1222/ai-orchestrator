@@ -181,7 +181,10 @@ def _run_dir(root: Path, run_id: str) -> Path:
 
 # W16d: on Windows another program (a virus scanner or search indexer, for example) can
 # briefly open a file just written here. Replacing or removing it then fails with a sharing
-# violation (PermissionError), so those two operations wait and try again for about 2 seconds.
+# violation (PermissionError), so each of those two operations is called at most 9 times,
+# waiting about 2 seconds in total between calls. When both fail, the waits add up to about
+# 4 seconds; time spent in the file operations themselves comes on top, so this is not a
+# strict deadline.
 RETRY_SHARING_VIOLATIONS = os.name == "nt"
 SHARING_RETRY_DELAYS = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.6, 0.6)
 
