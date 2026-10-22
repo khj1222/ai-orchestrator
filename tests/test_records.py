@@ -233,6 +233,11 @@ def test_failed_replace_preserves_original_and_removes_temporary(tmp_path, monke
 
 
 # W16d: a Windows sharing violation on the temporary file is retried for a bounded time.
+# The bound is stated here rather than derived from SHARING_RETRY_DELAYS, so changing the
+# delay list cannot silently change what the tests accept (W16i).
+MAX_CALLS_PER_OPERATION = 9
+MAX_WAIT_PER_OPERATION = 2.0
+
 
 @pytest.fixture
 def no_wait(monkeypatch):
@@ -285,8 +290,9 @@ def test_persistent_sharing_violation_raises_replace_error_within_bound(tmp_path
     monkeypatch.setattr(records.os, "replace", replace)
     with pytest.raises(PermissionError, match="simulated sharing"):
         save_check(check, tmp_path, "run-1")
-    assert len(calls) == len(records.SHARING_RETRY_DELAYS) + 1
-    assert no_wait == list(records.SHARING_RETRY_DELAYS) and 1.0 <= sum(no_wait) <= 3.0
+    assert len(calls) == MAX_CALLS_PER_OPERATION
+    assert no_wait == list(records.SHARING_RETRY_DELAYS)
+    assert 1.0 <= sum(no_wait) <= MAX_WAIT_PER_OPERATION
     assert path.read_bytes() == original
     assert list(path.parent.iterdir()) == [path]
 
@@ -307,7 +313,10 @@ def test_cleanup_failure_does_not_hide_replace_error(tmp_path, monkeypatch, no_w
     with pytest.raises(PermissionError, match="simulated replace") as raised:
         save_check(check, tmp_path, "run-1")
     assert raised.value.filename2 == str(path)
-    assert len(unlinks) == len(records.SHARING_RETRY_DELAYS) + 1
+    assert len(unlinks) == MAX_CALLS_PER_OPERATION
+    # replace and cleanup each have their own budget, so the worst case waits about 4 seconds
+    assert len(no_wait) == 2 * (MAX_CALLS_PER_OPERATION - 1)
+    assert sum(no_wait) <= 2 * MAX_WAIT_PER_OPERATION
     assert path.read_bytes() == original
     assert [p.suffix for p in path.parent.iterdir()].count(".tmp") == 1  # kept, not hidden
 
