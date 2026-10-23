@@ -76,7 +76,9 @@ hooks, MCP servers, plugins, skills, `CLAUDE.md` and auto memory, both your own 
 `.mcp.json` a worker writes into its workspace, while login, built-in tools and permissions work as usual. The target
 repository's `CLAUDE.md` is then not read automatically, so put the rules a worker needs in its instructions or name
 the file there. Admin-managed (policy) settings still apply, including any hooks they define. Set
-`"safe_mode": false` on a route to turn it off.
+`"safe_mode": false` on a route to turn it off. Run records keep the resolved route, including `safe_mode` and the
+keys that took adapter defaults (`defaults_applied`), and the CLI version: in `summary.json` for `run-task`, and per
+task in `summary.json` and `run-report.json` for `run-plan`.
 
 ## Example 1 — reproduce the committed results without any model CLI
 
@@ -186,8 +188,10 @@ from a manager-pinned source), gitlinks counted as deliverables, and path whites
   with both registered checks passing; a full plan run on it has not been done.
 - Claude routes use `--safe-mode` by default since October 2026. With Claude Code 2.1.287 and `claude-opus-5-5`,
   one single-task run with it was accepted with both registered checks passing. In a direct check, hooks in a
-  workspace `.claude/settings.json` ran without `--safe-mode` and did not run with it. A full plan run with it has
-  not been done.
+  workspace `.claude/settings.json` ran without `--safe-mode` and did not run with it. In a local check with Claude
+  Code 2.1.304 (`-p`), a stdio server in a workspace `.mcp.json` started without `--safe-mode`, both with and without
+  a workspace `enableAllProjectMcpServers` setting. With that setting present and `--safe-mode` enabled, it did not
+  start. User-level approval settings were not isolated. A full plan run with it has not been done.
 - Results reproduce by re-running on the committed outputs; model runs themselves are not deterministic.
 
 ## Reference

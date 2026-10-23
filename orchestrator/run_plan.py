@@ -16,7 +16,6 @@ Ctrl+C and stop are covered only as far as W7 covers them for one attempt.
 from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from dataclasses import MISSING, fields
 import hashlib
 import json
 import os
@@ -24,39 +23,15 @@ from pathlib import Path
 import subprocess
 
 from . import records, workspace
-from .adapters.claude import ClaudeSpec
-from .adapters.codex import CodexSpec
-from .cli import (EXIT_CODES, CLIError, RunStore, _attempt_loop, _git, _lock, _read, _ready,
-                  _recover, adapter_for, require_tool_paths, start_failure_note, stop_task,
-                  tool_executable, unfinished_tasks)
+from .cli import (EXIT_CODES, CLIError, RunStore, _attempt_loop, _cli_version, _git, _lock, _read,
+                  _ready, _recover, _resolved_route, adapter_for, require_tool_paths,
+                  start_failure_note, stop_task, unfinished_tasks)
 from .plan import PublicationSourceError, read_publication_source, validate_plan
 
 MAX_PARALLEL = 2
 MERGE_IDENTITY = ("-c", "user.name=orchestrator", "-c", "user.email=orchestrator@localhost.invalid",
                   "-c", "commit.gpgsign=false")
 DONE = {"integrated"}
-
-
-def _resolved_route(route: dict) -> dict:
-    """The execution settings the adapter actually uses: configured values, else the
-    CodexSpec/ClaudeSpec defaults (W13b Codex review F3). An effort left to the CLI's own
-    default is recorded as "cli-default" because its value is not known here."""
-    tool = route["tool"]
-    spec_type = CodexSpec if tool == "codex" else ClaudeSpec
-    defaults = {f.name: f.default for f in fields(spec_type) if f.default is not MISSING}
-    keys = ("sandbox", "approve_for_me") if tool == "codex" else ("permission_mode", "safe_mode")
-    effort = route.get("effort", route.get("model_reasoning_effort"))
-    resolved = {"tool": tool, "model": route.get("model"),
-                "effort": effort if effort is not None else "cli-default"}
-    applied = []
-    for key in keys:
-        if key in route:
-            resolved[key] = route[key]
-        else:
-            resolved[key] = defaults[key]
-            applied.append(key)
-    resolved["defaults_applied"] = applied
-    return resolved
 
 
 def integration_ref(run_id: str) -> str:
@@ -197,17 +172,16 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
         def execute(task_id: str, base: str) -> int:
             spec = specs[task_id]
             route = config["routes"][spec["route_id"]]
-            version = _cli_version(config, route["tool"], config_dir)
+            # W13 concern 5: what actually ran, not only the route ID. Read outside the
+            # records lock; the attempt loop writes it with each new attempt (W16j review F1).
+            record = {"route": _resolved_route(route),
+                      "cli_version": _cli_version(config, route["tool"], config_dir)}
             with store.lock():
                 run = store.load()
-                # W13 concern 5: what actually ran, not only the route ID.
-                scope = run.summary["tasks"][task_id]
-                scope["route"] = _resolved_route(route)
-                scope["cli_version"] = version
                 _ready(store, run, run.tasks[task_id])
             return _attempt_loop(store, spec, config, repo, checks_dir, config_dir, adapter_factory,
                                  scope=lambda r: r.summary["tasks"][task_id], base_commit=base,
-                                 prompt=_prompt(texts[task_id], spec), finish=store.finish_task,
+                                 prompt=_prompt(texts[task_id], spec), finish=store.finish_task, record=record,
                                  retry_on_fail=True)
 
         running: dict = {}
@@ -315,18 +289,6 @@ def _finish(store: RunStore, executable: list[str], integrator: _Integrator) -> 
         return 2
     print(f"{run.run_id}: no task can start; check dependencies")
     return _close(store, run, 2, "no_startable_task")
-
-
-def _cli_version(config: dict, tool: str, config_dir: Path) -> str:
-    """First line of `<cli> --version`, or "unavailable"; never fails the run."""
-    try:
-        executable = tool_executable(config, tool, config_dir)
-        result = subprocess.run([str(executable), "--version"], capture_output=True, timeout=30,
-                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        line = result.stdout.decode("utf-8", "replace").strip().splitlines()
-        return line[0] if result.returncode == 0 and line else "unavailable"
-    except (OSError, KeyError, subprocess.SubprocessError):
-        return "unavailable"
 
 
 def _write_report(store: RunStore, run, executable: list[str], integrator: _Integrator, specs: dict,
