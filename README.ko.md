@@ -49,6 +49,7 @@ PowerShell이 `Activate.ps1` 실행을 거부하면 `Set-ExecutionPolicy -Scope 
 - Codex의 `approve_for_me: true`는 CLI의 `--approve-for-me`를 쓴다. `workspace-write`에서만 허용하며 샌드박스를 해제하지 않는다. Git worktree 메타데이터가 작업 공간 밖에 있으면 결과 커밋에 필요할 수 있다. CLI 지원 여부는 `codex exec --help`로 확인한다.
 - Claude Code 작업자는 `allowed_tools`에 `Bash(git:*)`·`Bash(python:*)` 같은 허용 패턴이 있어야 테스트와 커밋을 할 수 있다. 이 앱(Claude Code) 안에서 실행기를 띄우면 `CLAUDECODE`·`CLAUDE_CODE_ENTRYPOINT`를 `strip_env`에 넣어 중첩 세션을 피한다.
 - Claude route는 기본으로 `--safe-mode`로 실행한다(`"safe_mode": true`, Claude Code 2.1.169 이상). 사용자 설정과 작업자가 작업 공간에 만든 `.claude/settings.json`·`.mcp.json`의 훅·MCP 서버·플러그인·스킬·`CLAUDE.md`·auto memory를 끄고, 로그인·내장 도구·권한은 그대로 둔다. 대상 저장소의 `CLAUDE.md`도 자동으로 읽지 않으므로 작업자에게 필요한 규칙은 지시문에 적거나 그 파일을 지시문에서 가리킨다. 관리자가 배포한 정책(managed) 설정은 계속 적용되며, 거기에 정의된 훅도 실행된다. 끄려면 route에 `"safe_mode": false`를 둔다.
+- 실행 기록에는 해석된 route(`safe_mode`와, 어댑터 기본값을 쓴 키를 적은 `defaults_applied` 포함)와 CLI 버전이 남는다. `run-task`는 `summary.json`에, `run-plan`은 작업별로 `summary.json`과 `run-report.json`에 남긴다.
 
 ## 예제 1 — 모델 CLI 없이 커밋된 결과 재현
 

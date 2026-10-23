@@ -76,7 +76,9 @@ hooks, MCP servers, plugins, skills, `CLAUDE.md` and auto memory, both your own 
 `.mcp.json` a worker writes into its workspace, while login, built-in tools and permissions work as usual. The target
 repository's `CLAUDE.md` is then not read automatically, so put the rules a worker needs in its instructions or name
 the file there. Admin-managed (policy) settings still apply, including any hooks they define. Set
-`"safe_mode": false` on a route to turn it off.
+`"safe_mode": false` on a route to turn it off. Run records keep the resolved route, including `safe_mode` and the
+keys that took adapter defaults (`defaults_applied`), and the CLI version: in `summary.json` for `run-task`, and per
+task in `summary.json` and `run-report.json` for `run-plan`.
 
 ## Example 1 — reproduce the committed results without any model CLI
 

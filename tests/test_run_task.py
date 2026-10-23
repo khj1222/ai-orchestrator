@@ -148,7 +148,36 @@ def test_accepted_rerun_does_not_start_or_accept_again(case, monkeypatch):
     assert loaded(case)[1].attempts == [first]
 
 
-@pytest.mark.parametrize("change", ["placeholder", "dependency", "route", "check", "check-shape",
+def test_resolved_route_and_cli_version_are_recorded(case):  # W16j
+    case.config["paths"]["codex"] = sys.executable  # answers --version like a CLI would
+    case.config["routes"]["offline"].update(model_reasoning_effort="high", sandbox="workspace-write")
+    assert execute(case) == 0
+    summary = loaded(case)[0].summary
+    assert summary["route"] == {"tool": "codex", "model": "success", "effort": "high",
+                                "sandbox": "workspace-write", "approve_for_me": False,
+                                "defaults_applied": ["approve_for_me"]}
+    assert summary["cli_version"].startswith("Python 3.")
+
+
+def test_claude_route_record_shows_safe_mode_default(case):  # W16j; the dummy adapter ignores the tool
+    case.config["paths"]["claude"] = "unused-claude"  # does not exist
+    case.config["routes"]["offline"] = {"tool": "claude", "model": "success"}
+    assert execute(case) == 0
+    summary = loaded(case)[0].summary
+    assert summary["route"] == {"tool": "claude", "model": "success", "effort": "cli-default",
+                                "permission_mode": "acceptEdits", "safe_mode": True,
+                                "defaults_applied": ["permission_mode", "safe_mode"]}
+    assert summary["cli_version"] == "unavailable"
+
+
+def test_finished_run_keeps_its_recorded_cli_version(case):  # W16j
+    assert execute(case) == 0  # paths.codex = "unused-codex" does not exist
+    case.config["paths"]["codex"] = sys.executable  # paths are not part of the fingerprint
+    assert execute(case) == 0
+    assert loaded(case)[0].summary["cli_version"] == "unavailable"
+
+
+@pytest.mark.parametrize("change",["placeholder", "dependency", "route", "check", "check-shape",
                                     "schema", "path", "empty-checks", "nan-timeout"])
 def test_validate_rejects_invalid_inputs_without_starting_process(case, monkeypatch, change):
     if change == "placeholder":
