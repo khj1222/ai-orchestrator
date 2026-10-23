@@ -188,9 +188,10 @@ from a manager-pinned source), gitlinks counted as deliverables, and path whites
   with both registered checks passing; a full plan run on it has not been done.
 - Claude routes use `--safe-mode` by default since October 2026. With Claude Code 2.1.287 and `claude-opus-5-5`,
   one single-task run with it was accepted with both registered checks passing. In a direct check, hooks in a
-  workspace `.claude/settings.json` ran without `--safe-mode` and did not run with it. With Claude Code 2.1.304, a
-  stdio server in a workspace `.mcp.json` started without `--safe-mode`, even with no approval setting, and did not
-  start with it. A full plan run with it has not been done.
+  workspace `.claude/settings.json` ran without `--safe-mode` and did not run with it. In a local check with Claude
+  Code 2.1.304 (`-p`), a stdio server in a workspace `.mcp.json` started without `--safe-mode`, both with and without
+  a workspace `enableAllProjectMcpServers` setting. With that setting present and `--safe-mode` enabled, it did not
+  start. User-level approval settings were not isolated. A full plan run with it has not been done.
 - Results reproduce by re-running on the committed outputs; model runs themselves are not deterministic.
 
 ## Reference

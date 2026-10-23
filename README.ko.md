@@ -127,7 +127,7 @@ run마다 관리자가 판정, 변경 범위, 깨끗한 worktree에서의 출력
 - protocol hash는 OS에 따라 다르다. `protocol_hash()`가 `Path` 객체를 `sorted()`로 정렬하는데, Windows에서는 대소문자를 무시하고 다른 OS에서는 구분해서 `README.md`의 순서가 달라진다. 파일 내용은 같고, Linux 값은 `96b2671e8f9e961184f7de7059852854f184a0c9d29e9ad1112fd5c2d9023acc`이다. 이 저장소의 계획과 기록은 Windows 값을 쓴다.
 - 실행 기록은 `orch status`(또는 같은 run 잠금)로만 읽는다. Windows에서는 다른 프로그램이 잠금 없이 기록 파일을 열어 두면 실행 관리자의 원자적 파일 교체가 `PermissionError`로 실패한다.
 - 위 혼합 계획의 Claude 작업자는 Claude Code CLI 2.1.268과 `claude-opus-5`를 사용했다. 그 버전은 `claude-opus-5-5`를 받지 않는다. 2.1.287로 업데이트한 뒤(2026년 10월) `claude-opus-5-5`로 작업 하나를 실행해 등록 검사 두 개가 모두 통과하고 채택됐다. 계획 전체 실행은 아직 하지 않았다.
-- Claude route의 `--safe-mode` 기본 적용은 2026년 10월에 넣었다. Claude Code 2.1.287과 `claude-opus-5-5`로 작업 하나를 실행해 등록 검사 두 개가 모두 통과하고 채택됐다. 직접 확인에서 작업 공간 `.claude/settings.json`의 훅은 `--safe-mode` 없이는 실행됐고, 있으면 실행되지 않았다. Claude Code 2.1.304에서 작업 공간 `.mcp.json`의 stdio 서버는 `--safe-mode` 없이는 승인 설정이 없어도 시작됐고, 있으면 시작되지 않았다. 계획 전체 실행은 아직 하지 않았다.
+- Claude route의 `--safe-mode` 기본 적용은 2026년 10월에 넣었다. Claude Code 2.1.287과 `claude-opus-5-5`로 작업 하나를 실행해 등록 검사 두 개가 모두 통과하고 채택됐다. 직접 확인에서 작업 공간 `.claude/settings.json`의 훅은 `--safe-mode` 없이는 실행됐고, 있으면 실행되지 않았다. Claude Code 2.1.304의 로컬 `-p` 대조에서 작업 공간 `.mcp.json`의 stdio 서버는 `--safe-mode`가 없으면 작업 공간 `enableAllProjectMcpServers` 설정 유무와 관계없이 시작됐다. 그 설정이 있는 상태에서 `--safe-mode`를 켜면 시작되지 않았다. 사용자 전역 승인 설정은 격리하지 않았다. 계획 전체 실행은 아직 하지 않았다.
 - 재현 범위는 커밋된 산출물의 재실행이다. 모델 실행 자체는 결정적이지 않다.
 
 ## 상세 참조

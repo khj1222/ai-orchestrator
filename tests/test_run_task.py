@@ -1,5 +1,6 @@
 """W7 real local Git/Python integration tests. No model CLI or network calls."""
 
+from contextlib import contextmanager
 from dataclasses import asdict
 import json
 import os
@@ -248,10 +249,11 @@ def test_status_is_read_only(case):
     assert {p: p.read_bytes() for p in case.root.rglob("*") if p.is_file()} == before
 
 
-def seed_attempt(c, snapshot, state="running"):
+def seed_attempt(c, snapshot, state="running", summary=None):
     task = records.Task("task-1", "1", state="running", attempts=["previous"])
     attempt = records.Attempt("previous", task.task_id, "offline", state=state, process=snapshot)
-    run = records.Run("run-1", "1", tasks={task.task_id: task}, attempts={attempt.attempt_id: attempt})
+    run = records.Run("run-1", "1", tasks={task.task_id: task}, attempts={attempt.attempt_id: attempt},
+                      summary=summary or {})
     records.save_run(run, c.root)
 
 
@@ -312,6 +314,59 @@ def test_restart_without_budget_finishes_failed(case, tmp_path):
     assert execute(case) == 1
     run, task = loaded(case)
     assert task.state == "failed" and task.attempts == ["previous"]
+
+
+PREVIOUS = {"route": {"tool": "codex", "model": "earlier"}, "cli_version": "previous-cli 1.0"}
+
+
+@pytest.mark.parametrize("prior", ["created", "running"])
+def test_exhausted_recovery_keeps_the_recorded_route_and_version(case, tmp_path, monkeypatch, prior):
+    # W16j review F1: no new attempt runs, so the earlier attempt's record stays.
+    case.spec["limits"] = {"max_attempts_total": 1}
+    snapshot = None
+    if prior == "running":
+        handle = process.start([sys.executable, "-c", "pass"], case.repo, tmp_path / "out", tmp_path / "err")
+        handle.wait(10)
+        snapshot = handle.snapshot()
+    seed_attempt(case, snapshot, prior, summary=dict(PREVIOUS))
+    monkeypatch.setattr(cli, "_cli_version", lambda *a: "replacement-cli 2.0")
+    monkeypatch.setattr(process, "start", lambda *a, **kw: pytest.fail("no attempt may start"))
+    assert execute(case) == 1
+    run, task = loaded(case)
+    assert (task.state, task.reason_code, task.attempts) == ("failed", "attempt_budget_exhausted", ["previous"])
+    assert (run.summary["route"], run.summary["cli_version"]) == (PREVIOUS["route"], PREVIOUS["cli_version"])
+
+
+def test_new_attempt_after_recovery_records_the_current_version(case, monkeypatch):  # W16j review
+    seed_attempt(case, None, "created", summary=dict(PREVIOUS))
+    monkeypatch.setattr(cli, "_cli_version", lambda *a: "replacement-cli 2.0")
+    assert execute(case) == 0
+    run, task = loaded(case)
+    assert len(task.attempts) == 2 and run.summary["cli_version"] == "replacement-cli 2.0"
+    assert run.summary["route"]["model"] == "success"
+
+
+def test_cli_version_is_read_outside_the_records_lock(case, monkeypatch):  # W16j review
+    held = []
+    original = cli.RunStore.lock
+
+    @contextmanager
+    def tracked(store, *a, **kw):
+        with original(store, *a, **kw):
+            held.append(True)
+            try:
+                yield
+            finally:
+                held.pop()
+
+    def version(*a):
+        assert not held, "CLI version read while holding the records lock"
+        return "offline-cli 2.0"
+
+    monkeypatch.setattr(cli.RunStore, "lock", tracked)
+    monkeypatch.setattr(cli, "_cli_version", version)
+    assert execute(case) == 0
+    assert loaded(case)[0].summary["cli_version"] == "offline-cli 2.0"
 
 
 def test_actual_timeout_stops_tree_and_consumes_attempt_budget(case):

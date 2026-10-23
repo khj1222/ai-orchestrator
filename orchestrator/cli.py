@@ -535,7 +535,6 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
                                              "route": config["routes"][spec["route_id"]]},
                                             sort_keys=True).encode()).hexdigest()
     route = config["routes"][spec["route_id"]]
-    version = _cli_version(config, route["tool"], config_dir)  # outside the records lock
     with store.lock():
         if (store.directory / "summary.json").exists():
             run = store.load()
@@ -563,11 +562,13 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
         recovered = _recover(store, run, task)
         if recovered is not None:
             return recovered
-        # W16j (W16c Codex review follow-up 3): what actually runs, as run-plan records per task.
-        run.summary.update(spec_fingerprint=fingerprint, repo=str(repo), route=_resolved_route(route),
-                           cli_version=version)
+        run.summary.update(spec_fingerprint=fingerprint, repo=str(repo))
         _ready(store, run, task)
         store.save(run)
+    # W16j (W16c Codex review follow-up 3): what actually runs, as run-plan records per task.
+    # Read after the terminal checks and outside the records lock; written only when an
+    # attempt is created (W16j review F1).
+    record = {"route": _resolved_route(route), "cli_version": _cli_version(config, route["tool"], config_dir)}
 
     def prompt(run, scope):
         return (spec["goal"] + "\n\nTask constraints:\n" + json.dumps({
@@ -577,7 +578,7 @@ def _run_owned(store, spec, config, repo, checks_dir, config_dir, factory):
 
     return _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory,
                          scope=lambda run: run.summary, base_commit=spec["base_commit"],
-                         prompt=prompt, finish=store.finish, retry_on_fail=False)
+                         prompt=prompt, finish=store.finish, retry_on_fail=False, record=record)
 
 
 REGULAR_FILE_MODES = {"100644", "100755"}
@@ -615,14 +616,16 @@ def _missing_deliverables(repo, subject: str, deliverables: list[str]) -> list[s
 
 
 def _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory, *,
-                  scope, base_commit, prompt, finish, retry_on_fail):
+                  scope, base_commit, prompt, finish, retry_on_fail, record=None):
     """Run attempts of one task until it is accepted, failed, blocked or cancelled.
 
     scope(run) returns the dict holding this task's base commit and verification
     metadata; finish(run, task, state, reason) ends the task. run-task (W7) passes
     run.summary and store.finish; run-plan passes a per-task dict and finish_task.
     With retry_on_fail a failed check starts a new attempt while budget remains;
-    W7 keeps a failed check terminal.
+    W7 keeps a failed check terminal. record (resolved route, CLI version) goes into
+    scope(run) with each new attempt, so a run that ends without one keeps the values
+    of the attempts that did run.
     """
     limits = {**config.get("limits", {}), **spec.get("limits", {})}
     budget, timeout = limits["max_attempts_total"], limits["timeout_seconds"]
@@ -643,6 +646,8 @@ def _attempt_loop(store, spec, config, repo, checks_dir, config_dir, factory, *,
                                       workspace=str(attempt_dir / "workspace"))
             run.attempts[aid] = attempt
             task.attempts.append(aid)
+            if record:
+                scope(run).update(record)
             store.save(run)
             try:
                 # A ref is pinned after the first creation; retries cannot follow a moving branch.

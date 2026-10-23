@@ -172,17 +172,16 @@ def run_plan(plan_path: Path, config: dict, repo: Path, root: Path, checks_dir: 
         def execute(task_id: str, base: str) -> int:
             spec = specs[task_id]
             route = config["routes"][spec["route_id"]]
-            version = _cli_version(config, route["tool"], config_dir)
+            # W13 concern 5: what actually ran, not only the route ID. Read outside the
+            # records lock; the attempt loop writes it with each new attempt (W16j review F1).
+            record = {"route": _resolved_route(route),
+                      "cli_version": _cli_version(config, route["tool"], config_dir)}
             with store.lock():
                 run = store.load()
-                # W13 concern 5: what actually ran, not only the route ID.
-                scope = run.summary["tasks"][task_id]
-                scope["route"] = _resolved_route(route)
-                scope["cli_version"] = version
                 _ready(store, run, run.tasks[task_id])
             return _attempt_loop(store, spec, config, repo, checks_dir, config_dir, adapter_factory,
                                  scope=lambda r: r.summary["tasks"][task_id], base_commit=base,
-                                 prompt=_prompt(texts[task_id], spec), finish=store.finish_task,
+                                 prompt=_prompt(texts[task_id], spec), finish=store.finish_task, record=record,
                                  retry_on_fail=True)
 
         running: dict = {}
