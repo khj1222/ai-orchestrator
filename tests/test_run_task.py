@@ -155,8 +155,8 @@ def test_resolved_route_and_cli_version_are_recorded(case):  # W16j
     assert execute(case) == 0
     summary = loaded(case)[0].summary
     assert summary["route"] == {"tool": "codex", "model": "success", "effort": "high",
-                                "sandbox": "workspace-write", "approve_for_me": False,
-                                "defaults_applied": ["approve_for_me"]}
+                                "sandbox": "workspace-write", "approve_for_me": False, "disable_features": [],
+                                "defaults_applied": ["approve_for_me", "disable_features"]}
     assert summary["cli_version"].startswith("Python 3.")
 
 
@@ -875,3 +875,35 @@ def test_start_failure_note_shows_only_error_type_and_executable(case):
     write(folder / "start-error.json", {"error_type": "OSError", "executable": "fake-program",
                                         "argv": ["SECRET-ARGV"], "environment": "SECRET-ENV", "prompt": "SECRET-PROMPT"})
     assert cli.start_failure_note(store, run, "task-1") == "task-1: last attempt could not start (OSError): fake-program"
+
+
+@pytest.mark.parametrize("value,valid", [(OMITTED, True), ([], True), (["multi_agent", "multi_agent_v2"], True),
+                                         ("multi_agent", False), (["multi_agent", "multi_agent"], False),
+                                         (["Multi_Agent"], False), (["--enable"], False), ([""], False),
+                                         ([None], False)])
+def test_validate_codex_disable_features_before_launch(case, tmp_path, value, valid):  # W18b
+    route = case.config["routes"]["offline"]
+    if value is not OMITTED:
+        route["disable_features"] = value
+    errors = cli.validate_task(case.spec, case.config, case.checks)
+    assert (not errors) is valid
+    if valid:
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("task", encoding="utf-8")
+        adapter, resolved = cli.adapter_for(route, case.config, tmp_path, case.repo)
+        argv = adapter.build_command(resolved, case.repo, prompt)
+        expected = [] if value is OMITTED else value
+        assert [argv[i + 1] for i, a in enumerate(argv) if a == "--disable"] == expected
+
+
+def test_claude_route_rejects_codex_disable_features(case):  # W18b
+    case.config["paths"]["claude"] = "unused-claude"
+    case.config["routes"]["offline"] = {"tool": "claude", "model": "m", "disable_features": ["multi_agent"]}
+    assert any("unsupported route fields" in e for e in cli.validate_task(case.spec, case.config, case.checks))
+
+
+def test_disable_features_are_recorded_with_the_route(case):  # W18b
+    case.config["routes"]["offline"]["disable_features"] = ["multi_agent"]
+    assert execute(case) == 0
+    route = loaded(case)[0].summary["route"]
+    assert route["disable_features"] == ["multi_agent"] and "disable_features" not in route["defaults_applied"]

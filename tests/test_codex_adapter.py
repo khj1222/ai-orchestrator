@@ -262,3 +262,57 @@ def test_auto_review_rejects_ambiguous_or_conflicting_settings(command_inputs, c
     adapter, spec, workspace, prompt = command_inputs
     with pytest.raises(ValueError):
         adapter.build_command(replace(spec, **changes), workspace, prompt)
+
+
+# W18b: feature switches and subagent evidence
+
+def test_disable_features_come_before_workspace_and_stdin_marker(command_inputs):
+    adapter, spec, workspace, prompt = command_inputs
+    spec = replace(spec, sandbox="workspace-write", approve_for_me=True,
+                   disable_features=("multi_agent", "multi_agent_v2"))
+    argv = adapter.build_command(spec, workspace, prompt)
+    start = argv.index("--approve-for-me") + 1
+    assert argv[start:start + 5] == ["--disable", "multi_agent", "--disable", "multi_agent_v2", "-C"]
+    assert argv[-1] == "-" and argv.count("--disable") == 2
+
+
+def test_no_disable_flag_by_default(command_inputs):
+    adapter, spec, workspace, prompt = command_inputs
+    assert "--disable" not in adapter.build_command(spec, workspace, prompt)
+
+
+@pytest.mark.parametrize("features", [["multi_agent"], ("multi_agent", "multi_agent"), ("Multi_Agent",),
+                                      ("--enable",), ("",), ("multi agent",), (3,), "multi_agent"])
+def test_invalid_disable_features_rejected(command_inputs, features):
+    adapter, spec, workspace, prompt = command_inputs
+    with pytest.raises(ValueError, match="disable_features"):
+        adapter.build_command(replace(spec, disable_features=features), workspace, prompt)
+
+
+def test_synthetic_collab_stream_counts_distinct_spawn_items():
+    # Hand-made: the collab_tool_call shape is inferred, not captured (fixtures README).
+    result = parse_events(FIXTURES / "exec-collab-synthetic.jsonl")
+    assert result.status == "completed" and result.final_message == "OK"
+    assert result.subagents_spawned == 2
+    assert result.unknown_item_types == ["future_item_kind"]
+
+
+def test_real_fixtures_report_no_subagents_and_no_unknown_items():
+    for name in ("exec-ok.jsonl", "exec-shell-stopped.jsonl"):
+        result = parse_events(FIXTURES / name)
+        assert result.subagents_spawned == 0 and result.unknown_item_types == []
+
+
+def test_unknown_item_types_keep_names_only(tmp_path):
+    events = [thread()] + [{"type": "item.completed", "item": {"id": f"i{n}", "type": kind, "secret": "x"}}
+                           for n, kind in enumerate(["zeta_kind", "alpha_kind", "zeta_kind", "file_change"])]
+    result = parse_events(write_events(tmp_path, events + [completed()]))
+    assert result.unknown_item_types == ["alpha_kind", "zeta_kind"]
+    assert "secret" not in json.dumps(result.unknown_item_types)
+
+
+@pytest.mark.parametrize("item_id", [None, "", 7])
+def test_collab_item_without_id_is_invalid_evidence(tmp_path, item_id):
+    event = {"type": "item.completed", "item": {"id": item_id, "type": "collab_tool_call", "tool": "spawn_agent"}}
+    with pytest.raises(EventParseError, match="collab"):
+        parse_events(write_events(tmp_path, [thread(), event, completed()]))

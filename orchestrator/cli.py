@@ -26,7 +26,7 @@ import time
 import uuid
 
 from . import process, records, verify, workspace
-from .adapters.codex import CodexAdapter, CodexSpec
+from .adapters.codex import FEATURE_NAME, CodexAdapter, CodexSpec
 from .adapters.claude import ClaudeAdapter, ClaudeSpec, EFFORT_LEVELS, PERMISSION_MODES
 
 
@@ -150,9 +150,13 @@ def validate_task(spec: dict, config: dict, checks_dir: Path, *,
             effort = route.get("effort", route.get("model_reasoning_effort"))
             if effort is not None and (not _text(effort) or (tool == "claude" and effort not in EFFORT_LEVELS)):
                 errors.append("unsupported route effort")
-            for key in ("allowed_tools", "add_dirs"):
+            for key in ("allowed_tools", "add_dirs", "disable_features"):
                 if key in route and (not isinstance(route[key], list) or not all(_text(v) for v in route[key])):
                     errors.append(f"route.{key} must be a string list")
+            features = route.get("disable_features", [])
+            if isinstance(features, list) and all(_text(v) for v in features) and (
+                    len(set(features)) != len(features) or not all(FEATURE_NAME.fullmatch(v) for v in features)):
+                errors.append("route.disable_features must be distinct lowercase feature names")
             for key in ("max_turns", "max_budget_usd"):
                 if key in route:
                     value = route[key]
@@ -197,7 +201,7 @@ def _resolved_route(route: dict) -> dict:
     tool = route["tool"]
     spec_type = CodexSpec if tool == "codex" else ClaudeSpec
     defaults = {f.name: f.default for f in fields(spec_type) if f.default is not MISSING}
-    keys = ("sandbox", "approve_for_me") if tool == "codex" else ("permission_mode", "safe_mode")
+    keys = ("sandbox", "approve_for_me", "disable_features") if tool == "codex" else ("permission_mode", "safe_mode")
     effort = route.get("effort", route.get("model_reasoning_effort"))
     resolved = {"tool": tool, "model": route.get("model"),
                 "effort": effort if effort is not None else "cli-default"}
@@ -208,6 +212,8 @@ def _resolved_route(route: dict) -> dict:
         else:
             resolved[key] = defaults[key]
             applied.append(key)
+        if isinstance(resolved[key], tuple):
+            resolved[key] = list(resolved[key])  # the same value the records read back from JSON
     resolved["defaults_applied"] = applied
     return resolved
 
@@ -318,6 +324,8 @@ def adapter_for(route, config, evidence: Path, config_dir: Path):
         values[schema_key] = target.resolve()
     if tool == "codex":
         values["last_message_path"] = (evidence / "last-message.txt").resolve()
+        if "disable_features" in values:
+            values["disable_features"] = tuple(values["disable_features"])
         return CodexAdapter(executable), CodexSpec(**values)
     if "allowed_tools" in values:
         values["allowed_tools"] = tuple(values["allowed_tools"])

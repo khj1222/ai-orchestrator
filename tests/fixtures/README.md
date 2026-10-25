@@ -7,6 +7,7 @@
 |---|---|
 | `codex/exec-ok.jsonl` | `codex exec --json` 정상 실행. thread.started / turn.started / item.completed(agent_message) / turn.completed(usage) |
 | `codex/exec-shell-stopped.jsonl` | 셸 명령 실행 중 프로세스 트리를 강제 종료한 실행. command_execution 항목 포함, 마지막 턴 미완료 |
+| `codex/exec-collab-synthetic.jsonl` | **손으로 만든 파일(실제 출력 아님, W18b).** 서브에이전트 호출 `collab_tool_call` 항목(`tool` = `spawn_agent` 두 개, `wait` 하나)과 모르는 항목 종류 하나. 모양은 CLI 0.163 실행 파일의 문자열에서 추정했다. 실제 출력을 받으면 바꾼다 |
 | `claude/print-ok.json` | `claude -p --output-format json` 성공. is_error=false, terminal_reason=completed, result="OK". 첫 호출이라 cache_creation 7259 + cache_read 15445 토큰이 붙었다 |
 | `claude/print-ok-cached.json` | 같은 성공이지만 캐시가 살아 있는 상태. total_cost_usd 가 첫 호출의 약 1/7 |
 | `claude/print-not-logged-in.json` | 오류 결과. is_error=true, terminal_reason=api_error, result 에 로그인 안내 |

@@ -80,6 +80,13 @@ the file there. Admin-managed (policy) settings still apply, including any hooks
 keys that took adapter defaults (`defaults_applied`), and the CLI version: in `summary.json` for `run-task`, and per
 task in `summary.json` and `run-report.json` for `run-plan`.
 
+A Codex route can turn off CLI features with `"disable_features"`, one `--disable <name>` each (lowercase names from
+`codex features list`). Codex CLI 0.163 enables subagents (`multi_agent`) by default; set
+`"disable_features": ["multi_agent", "multi_agent_v2"]` when a worker must stay a single session. The list is kept in
+the resolved route. Each attempt's `adapter-result.json` counts the `spawn_agent` subagent calls in the event log
+(`subagents_spawned`) and lists event item types the parser does not know (`unknown_item_types`). That event shape
+was read from the CLI binary, not yet from a captured run.
+
 ## Example 1 — reproduce the committed results without any model CLI
 
 The repository contains the result of a real run: two search methods (`examples/search-ab/methods/`), an experiment
