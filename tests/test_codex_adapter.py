@@ -307,6 +307,17 @@ def test_real_collab_wait_streams(name):
     assert result.unknown_item_types == []
 
 
+def test_spawn_items_count_without_receiver_threads(tmp_path):
+    # A spawn whose child thread is not reported (or that failed) still counts, once per item id.
+    items = [{"type": f"item.{kind}", "item": {"id": item_id, "type": "collab_tool_call", "tool": tool,
+                                               "sender_thread_id": "test-thread", "receiver_thread_ids": []}}
+             for kind, item_id, tool in [("started", "s1", "spawn_agent"), ("completed", "s1", "spawn_agent"),
+                                         ("completed", "s2", "spawn_agent"), ("completed", "w1", "wait"),
+                                         ("completed", "x1", "close_agent")]]
+    result = parse_events(write_events(tmp_path, [thread(), *items, completed()]))
+    assert result.subagents_spawned == 2 and result.collab_tools == ["close_agent", "spawn_agent", "wait"]
+
+
 def test_receiver_threads_count_without_a_spawn_item(tmp_path):
     items = [{"type": "item.completed", "item": {"id": f"w{n}", "type": "collab_tool_call", "tool": "wait",
                                                  "sender_thread_id": "test-thread", "receiver_thread_ids": ids}}
