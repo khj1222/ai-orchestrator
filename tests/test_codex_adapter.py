@@ -379,6 +379,14 @@ def test_invalid_agents_enabled_rejected(command_inputs, value):
         adapter.build_command(replace(spec, agents_enabled=value), workspace, prompt)
 
 
+def test_incomplete_log_keeps_the_spawns_it_read(tmp_path):
+    # Codex W18b review R1: a killed attempt has no terminal event; the count is what was read (instruction §2).
+    started = {"type": "item.started", "item": {"id": "s1", "type": "collab_tool_call", "tool": "spawn_agent",
+                                                "sender_thread_id": "test-thread", "receiver_thread_ids": []}}
+    result = parse_events(write_events(tmp_path, [thread(), {"type": "turn.started"}, started]))
+    assert result.status == "incomplete" and result.subagents_spawned == 1 and result.collab_tools == ["spawn_agent"]
+
+
 def test_real_stream_with_agents_disabled_has_no_collab_items():
     # CLI 0.164.0-alpha.11.1, 2026-10-25: same prompt as exec-spawn-unseen-disabled.jsonl plus agents.enabled=false.
     result = parse_events(FIXTURES / "exec-agents-disabled.jsonl")
