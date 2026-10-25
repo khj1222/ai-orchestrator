@@ -305,9 +305,11 @@ def test_real_fixtures_report_no_subagents_and_no_unknown_items():
 
 def test_unknown_item_types_keep_names_only(tmp_path):
     events = [thread()] + [{"type": "item.completed", "item": {"id": f"i{n}", "type": kind, "secret": "x"}}
-                           for n, kind in enumerate(["zeta_kind", "alpha_kind", "zeta_kind", "file_change"])]
+                           for n, kind in enumerate(["zeta_kind", "alpha_kind", "zeta_kind", "file_change", "mu_kind",
+                                                                     "beta_kind", "omega_kind", "kappa_kind"])]
     result = parse_events(write_events(tmp_path, events + [completed()]))
-    assert result.unknown_item_types == ["alpha_kind", "zeta_kind"]
+    # Six names: an unsorted set order matches sorted order by chance about once in 720 runs.
+    assert result.unknown_item_types == ["alpha_kind", "beta_kind", "kappa_kind", "mu_kind", "omega_kind", "zeta_kind"]
     assert "secret" not in json.dumps(result.unknown_item_types)
 
 
