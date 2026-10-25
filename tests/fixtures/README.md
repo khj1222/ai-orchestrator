@@ -1,7 +1,7 @@
 # 테스트 fixture
 
 실제 CLI 실행에서 받은 출력 샘플이다. 어댑터 테스트는 이 파일들로만 검증하며 실제 CLI를 호출하지 않는다.
-채취일 2026-09-11, 출처는 설계 문서 폴더의 `08-g0-log.md`. 예외: `codex/exec-collab-wait-*.jsonl`·`codex/exec-spawn-unseen-disabled.jsonl`은 2026-10-25(W18b E4)에 받았고, `codex/exec-collab-synthetic.jsonl`은 손으로 만들었다.
+채취일 2026-09-11, 출처는 설계 문서 폴더의 `08-g0-log.md`. 예외: `codex/exec-collab-wait-*.jsonl`·`codex/exec-spawn-unseen-disabled.jsonl`·`codex/exec-agents-disabled.jsonl`은 2026-10-25(W18b E4)에 받았고, `codex/exec-collab-synthetic.jsonl`은 손으로 만들었다.
 
 | 파일 | 내용 |
 |---|---|
@@ -10,6 +10,7 @@
 | `codex/exec-collab-wait-enabled.jsonl` | 실제 출력(2026-10-25, CLI 0.163.0-alpha.11.2, W18b E4). 도우미 에이전트를 띄우라는 프롬프트, `multi_agent` 켬. `collab_tool_call`(`tool` = `wait`, `receiver_thread_ids` 빈 목록) 하나와 최종 답 READY. `spawn_agent` 항목은 없다 |
 | `codex/exec-collab-wait-disabled.jsonl` | 같은 프롬프트에 `--disable multi_agent --disable multi_agent_v2`. 켬과 같은 모양이다(`wait` 하나, READY) |
 | `codex/exec-spawn-unseen-disabled.jsonl` | 실제 출력(2026-10-25, W18b E4b). `ephemeral: false`, `--disable multi_agent --disable multi_agent_v2`, `spawn_agent`를 명시적으로 부르라는 프롬프트. **도우미가 실제로 생성되어 답했는데**(세션 기록에 `spawn_agent` 호출과 자식 기록이 있다) 이 출력에는 `wait` 하나만 있다 |
+| `codex/exec-agents-disabled.jsonl` | 실제 출력(2026-10-25, CLI 0.164.0-alpha.11.1, W18b E4c). 위와 같은 프롬프트에 `-c agents.enabled=false`를 더했다. 협업 항목 없이 최종 답 `NO_SPAWN_AGENT_TOOL`이고, 세션 기록에도 생성이 없었다 |
 | `codex/exec-collab-synthetic.jsonl` | **손으로 만든 파일(실제 출력 아님, W18b).** 위 실제 항목 모양(`sender_thread_id`·`receiver_thread_ids`·`agents_states`)을 따라 `spawn_agent` 두 개와 `wait` 하나, 모르는 항목 종류 하나를 넣었다. CLI 0.163의 `exec --json`은 `spawn_agent`를 항목으로 내보내지 않았다 |
 | `claude/print-ok.json` | `claude -p --output-format json` 성공. is_error=false, terminal_reason=completed, result="OK". 첫 호출이라 cache_creation 7259 + cache_read 15445 토큰이 붙었다 |
 | `claude/print-ok-cached.json` | 같은 성공이지만 캐시가 살아 있는 상태. total_cost_usd 가 첫 호출의 약 1/7 |

@@ -34,6 +34,9 @@ class CodexSpec:
     approve_for_me: bool = False
     # W18b: one `--disable <name>` each. CLI 0.163 enables `multi_agent` (subagents) by default.
     disable_features: tuple[str, ...] = ()
+    # W18b E4c: False adds `-c agents.enabled=false`, which removed the subagent tools in CLI
+    # 0.164; `--disable multi_agent` did not. None leaves the CLI's own setting.
+    agents_enabled: bool | None = None
 
 
 FEATURE_NAME = re.compile(r"[a-z0-9_.]+")
@@ -112,6 +115,8 @@ The process layer must still handle a file disappearing before process start.
         if (not isinstance(features, tuple) or len(set(features)) != len(features)
                 or not all(isinstance(f, str) and FEATURE_NAME.fullmatch(f) for f in features)):
             raise ValueError("disable_features must be distinct lowercase feature names")
+        if spec.agents_enabled is not None and not isinstance(spec.agents_enabled, bool):
+            raise ValueError("agents_enabled must be a boolean or None")
         workspace = Path(workspace).resolve()
         argv = [str(self.codex_path), "exec", "--json", "-o",
                 _workspace_path(spec.last_message_path, workspace)]
@@ -124,6 +129,8 @@ The process layer must still handle a file disappearing before process start.
             argv += ["-s", spec.sandbox]
         for feature in features:
             argv += ["--disable", feature]
+        if spec.agents_enabled is not None:
+            argv += ["-c", "agents.enabled=" + ("true" if spec.agents_enabled else "false")]
         argv += ["-C", str(workspace), "--model", model]
         if spec.effort is not None:
             effort = _text(spec.effort, "effort")

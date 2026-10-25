@@ -357,3 +357,30 @@ def test_malformed_collab_item_is_invalid_evidence(tmp_path, changes):
     event = {"type": "item.completed", "item": item}
     with pytest.raises(EventParseError, match="collab"):
         parse_events(write_events(tmp_path, [thread(), event, completed()]))
+
+
+# W18b E4c: `-c agents.enabled=false` removed the subagent tools in CLI 0.164; --disable did not.
+
+@pytest.mark.parametrize("value,expected", [(None, []), (False, ["-c", "agents.enabled=false"]),
+                                            (True, ["-c", "agents.enabled=true"])])
+def test_agents_enabled_setting_comes_before_workspace(command_inputs, value, expected):
+    adapter, spec, workspace, prompt = command_inputs
+    argv = adapter.build_command(replace(spec, agents_enabled=value, disable_features=("multi_agent",)),
+                                 workspace, prompt)
+    start = argv.index("multi_agent") + 1
+    assert argv[start:argv.index("-C")] == expected
+    assert argv[-1] == "-" and argv.count("agents.enabled=false") == (value is False)
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1, "true"])
+def test_invalid_agents_enabled_rejected(command_inputs, value):
+    adapter, spec, workspace, prompt = command_inputs
+    with pytest.raises(ValueError, match="agents_enabled"):
+        adapter.build_command(replace(spec, agents_enabled=value), workspace, prompt)
+
+
+def test_real_stream_with_agents_disabled_has_no_collab_items():
+    # CLI 0.164.0-alpha.11.1, 2026-10-25: same prompt as exec-spawn-unseen-disabled.jsonl plus agents.enabled=false.
+    result = parse_events(FIXTURES / "exec-agents-disabled.jsonl")
+    assert result.final_message == "NO_SPAWN_AGENT_TOOL"
+    assert result.collab_tools == [] and result.subagents_spawned == 0 and result.status == "completed"

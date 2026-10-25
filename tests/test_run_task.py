@@ -155,8 +155,8 @@ def test_resolved_route_and_cli_version_are_recorded(case):  # W16j
     assert execute(case) == 0
     summary = loaded(case)[0].summary
     assert summary["route"] == {"tool": "codex", "model": "success", "effort": "high",
-                                "sandbox": "workspace-write", "approve_for_me": False, "disable_features": [],
-                                "defaults_applied": ["approve_for_me", "disable_features"]}
+                                "sandbox": "workspace-write", "approve_for_me": False, "disable_features": [], "agents_enabled": None,
+                                "defaults_applied": ["approve_for_me", "disable_features", "agents_enabled"]}
     assert summary["cli_version"].startswith("Python 3.")
 
 
@@ -907,3 +907,32 @@ def test_disable_features_are_recorded_with_the_route(case):  # W18b
     assert execute(case) == 0
     route = loaded(case)[0].summary["route"]
     assert route["disable_features"] == ["multi_agent"] and "disable_features" not in route["defaults_applied"]
+
+
+@pytest.mark.parametrize("value,valid", [(OMITTED, True), (False, True), (True, True),
+                                         ("false", False), (0, False), (None, False)])
+def test_validate_codex_agents_enabled_before_launch(case, tmp_path, value, valid):  # W18b E4c
+    route = case.config["routes"]["offline"]
+    if value is not OMITTED:
+        route["agents_enabled"] = value  # None is an explicit JSON null
+    errors = cli.validate_task(case.spec, case.config, case.checks)
+    assert (not errors) is valid
+    if valid:
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("task", encoding="utf-8")
+        adapter, resolved = cli.adapter_for(route, case.config, tmp_path, case.repo)
+        argv = adapter.build_command(resolved, case.repo, prompt)
+        assert ("agents.enabled=false" in argv) is (value is False)
+
+
+def test_claude_route_rejects_codex_agents_enabled(case):  # W18b E4c
+    case.config["paths"]["claude"] = "unused-claude"
+    case.config["routes"]["offline"] = {"tool": "claude", "model": "m", "agents_enabled": False}
+    assert any("unsupported route fields" in e for e in cli.validate_task(case.spec, case.config, case.checks))
+
+
+def test_agents_enabled_is_recorded_with_the_route(case):  # W18b E4c
+    case.config["routes"]["offline"]["agents_enabled"] = False
+    assert execute(case) == 0
+    route = loaded(case)[0].summary["route"]
+    assert route["agents_enabled"] is False and "agents_enabled" not in route["defaults_applied"]

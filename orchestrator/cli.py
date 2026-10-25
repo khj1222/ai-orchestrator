@@ -137,7 +137,8 @@ def validate_task(spec: dict, config: dict, checks_dir: Path, *,
             paths = config.get("paths", {})
             if not isinstance(paths, dict) or not _text(paths.get(tool)):
                 errors.append(f"config.paths.{tool} must name the CLI executable")
-            for key in ("ephemeral", "skip_git_repo_check", "session_persistence", "approve_for_me", "safe_mode"):
+            for key in ("ephemeral", "skip_git_repo_check", "session_persistence", "approve_for_me", "safe_mode",
+                        "agents_enabled"):
                 if key in route and type(route[key]) is not bool:
                     errors.append(f"route.{key} must be boolean")
             if tool == "codex" and route.get("sandbox", "read-only") not in (
@@ -201,7 +202,8 @@ def _resolved_route(route: dict) -> dict:
     tool = route["tool"]
     spec_type = CodexSpec if tool == "codex" else ClaudeSpec
     defaults = {f.name: f.default for f in fields(spec_type) if f.default is not MISSING}
-    keys = ("sandbox", "approve_for_me", "disable_features") if tool == "codex" else ("permission_mode", "safe_mode")
+    keys = (("sandbox", "approve_for_me", "disable_features", "agents_enabled") if tool == "codex"
+            else ("permission_mode", "safe_mode"))
     effort = route.get("effort", route.get("model_reasoning_effort"))
     resolved = {"tool": tool, "model": route.get("model"),
                 "effort": effort if effort is not None else "cli-default"}

@@ -395,14 +395,14 @@ def test_route_and_cli_version_are_recorded(case):
     assert run(case) == 0
     scope = loaded(case).summary["tasks"]["alpha"]
     assert scope["route"] == {"tool": "codex", "model": "ok", "effort": "high", "sandbox": "workspace-write",
-                              "approve_for_me": False, "disable_features": [],
-                              "defaults_applied": ["approve_for_me", "disable_features"]}
+                              "approve_for_me": False, "disable_features": [], "agents_enabled": None,
+                              "defaults_applied": ["approve_for_me", "disable_features", "agents_enabled"]}
     assert scope["cli_version"].startswith("Python 3.")
 
 
 @pytest.mark.parametrize("tool,expected", [  # W13b Codex review F3: adapter defaults are recorded
-    ("codex", {"sandbox": "read-only", "approve_for_me": False, "disable_features": [],
-               "defaults_applied": ["sandbox", "approve_for_me", "disable_features"]}),
+    ("codex", {"sandbox": "read-only", "approve_for_me": False, "disable_features": [], "agents_enabled": None,
+               "defaults_applied": ["sandbox", "approve_for_me", "disable_features", "agents_enabled"]}),
     ("claude", {"permission_mode": "acceptEdits", "safe_mode": True,
                 "defaults_applied": ["permission_mode", "safe_mode"]}),
 ])
