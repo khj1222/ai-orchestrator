@@ -39,6 +39,8 @@ store, or arbitrary event metadata is copied into this result.
     # W18b: Codex 파서가 모르는 item 종류 이름(정렬, 내용 없음). 새 CLI 가 서브에이전트 등을
     # 다른 이름으로 보고해도 감사에서 보이게 한다.
     unknown_item_types: list[str] = field(default_factory=list)
+    # W18b: collab_tool_call 의 도구 이름(정렬). multi_agent 를 꺼도 "wait" 가 쓰인 실제 기록이 있다.
+    collab_tools: list[str] = field(default_factory=list)
 
 
 class ProcessControl(Protocol):

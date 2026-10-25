@@ -290,17 +290,35 @@ def test_invalid_disable_features_rejected(command_inputs, features):
 
 
 def test_synthetic_collab_stream_counts_distinct_spawn_items():
-    # Hand-made: the collab_tool_call shape is inferred, not captured (fixtures README).
+    # Hand-made in the captured item shape; a real spawn_agent item has not been captured (fixtures README).
     result = parse_events(FIXTURES / "exec-collab-synthetic.jsonl")
     assert result.status == "completed" and result.final_message == "OK"
-    assert result.subagents_spawned == 2
+    assert result.subagents_spawned == 2 and result.collab_tools == ["spawn_agent", "wait"]
     assert result.unknown_item_types == ["future_item_kind"]
+
+
+@pytest.mark.parametrize("name", ["exec-collab-wait-enabled.jsonl", "exec-collab-wait-disabled.jsonl"])
+def test_real_collab_wait_streams(name):
+    # CLI 0.163.0-alpha.11.2, 2026-10-25 (W18b E4): both runs, multi_agent on and off, called "wait"
+    # with no receiver threads and showed no spawn_agent item.
+    result = parse_events(FIXTURES / name)
+    assert result.status == "completed" and result.final_message == "READY"
+    assert result.collab_tools == ["wait"] and result.subagents_spawned == 0
+    assert result.unknown_item_types == []
+
+
+def test_receiver_threads_count_without_a_spawn_item(tmp_path):
+    items = [{"type": "item.completed", "item": {"id": f"w{n}", "type": "collab_tool_call", "tool": "wait",
+                                                 "sender_thread_id": "test-thread", "receiver_thread_ids": ids}}
+             for n, ids in enumerate([["c1", "test-thread"], ["c1", "c2"], []])]
+    result = parse_events(write_events(tmp_path, [thread(), *items, completed()]))
+    assert result.subagents_spawned == 2 and result.collab_tools == ["wait"]
 
 
 def test_real_fixtures_report_no_subagents_and_no_unknown_items():
     for name in ("exec-ok.jsonl", "exec-shell-stopped.jsonl"):
         result = parse_events(FIXTURES / name)
-        assert result.subagents_spawned == 0 and result.unknown_item_types == []
+        assert result.subagents_spawned == 0 and result.unknown_item_types == [] and result.collab_tools == []
 
 
 def test_unknown_item_types_keep_names_only(tmp_path):
@@ -313,8 +331,10 @@ def test_unknown_item_types_keep_names_only(tmp_path):
     assert "secret" not in json.dumps(result.unknown_item_types)
 
 
-@pytest.mark.parametrize("item_id", [None, "", 7])
-def test_collab_item_without_id_is_invalid_evidence(tmp_path, item_id):
-    event = {"type": "item.completed", "item": {"id": item_id, "type": "collab_tool_call", "tool": "spawn_agent"}}
+@pytest.mark.parametrize("changes", [{"id": None}, {"id": ""}, {"id": 7}, {"tool": None}, {"tool": 3},
+                                     {"receiver_thread_ids": "c1"}, {"receiver_thread_ids": [1]}])
+def test_malformed_collab_item_is_invalid_evidence(tmp_path, changes):
+    item = {"id": "c", "type": "collab_tool_call", "tool": "spawn_agent", "receiver_thread_ids": [], **changes}
+    event = {"type": "item.completed", "item": item}
     with pytest.raises(EventParseError, match="collab"):
         parse_events(write_events(tmp_path, [thread(), event, completed()]))

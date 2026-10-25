@@ -149,14 +149,18 @@ Started commands are retained when an attempt is killed. Updates replace the
 same item, rather than duplicating it. Unknown event types are ignored for
 forward compatibility. Missing terminal events never imply successful exit.
 
-W18b: subagents_spawned counts distinct collab_tool_call items whose tool is
-spawn_agent (0 when none were read). That item shape is inferred from strings in
-the 0.163 binary, not yet from a captured exec stream. Other item types are
-listed by name only in unknown_item_types.
+W18b: collab_tool_call items (captured from CLI 0.163: id, tool, sender_thread_id,
+receiver_thread_ids, agents_states, status) list their tool names in collab_tools.
+subagents_spawned is the larger of the distinct spawn_agent items and the distinct
+receiver threads other than the sender (0 when none were read). A spawn_agent item
+has not been captured yet. Other item types are listed by name only in
+unknown_item_types.
 """
     result = AttemptResult()
     commands: dict[str, CommandExecution] = {}
     spawned: set[str] = set()
+    receivers: set[str] = set()
+    tools: set[str] = set()
     unknown: set[str] = set()
     failed = False
     for event in _events(path):
@@ -208,14 +212,19 @@ listed by name only in unknown_item_types.
                 commands[item_id] = CommandExecution(item_id, command, code, status)
             elif item.get("type") == "collab_tool_call":
                 item_id = item.get("id")
-                if not isinstance(item_id, str) or not item_id:
+                threads = item.get("receiver_thread_ids", [])
+                if (not isinstance(item_id, str) or not item_id or not isinstance(item.get("tool"), str)
+                        or not isinstance(threads, list) or not all(isinstance(t, str) for t in threads)):
                     raise EventParseError("Invalid collab tool call")
-                if item.get("tool") == "spawn_agent":
+                tools.add(item["tool"])
+                if item["tool"] == "spawn_agent":
                     spawned.add(item_id)
+                receivers.update(t for t in threads if t and t != item.get("sender_thread_id"))
             elif isinstance(item.get("type"), str) and item["type"] not in KNOWN_ITEM_TYPES:
                 unknown.add(item["type"])
     result.command_executions = list(commands.values())
-    result.subagents_spawned = len(spawned)
+    result.subagents_spawned = max(len(spawned), len(receivers))
+    result.collab_tools = sorted(tools)
     result.unknown_item_types = sorted(unknown)
     if failed:
         result.status = "failed"

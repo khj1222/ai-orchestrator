@@ -83,9 +83,12 @@ task in `summary.json` and `run-report.json` for `run-plan`.
 A Codex route can turn off CLI features with `"disable_features"`, one `--disable <name>` each (lowercase names from
 `codex features list`). Codex CLI 0.163 enables subagents (`multi_agent`) by default; set
 `"disable_features": ["multi_agent", "multi_agent_v2"]` when a worker must stay a single session. The list is kept in
-the resolved route. Each attempt's `adapter-result.json` counts the `spawn_agent` subagent calls in the event log
-(`subagents_spawned`) and lists event item types the parser does not know (`unknown_item_types`). That event shape
-was read from the CLI binary, not yet from a captured run.
+the resolved route. Each attempt's `adapter-result.json` lists the collaboration tools the worker called
+(`collab_tools`), counts subagents from `spawn_agent` calls and receiver threads (`subagents_spawned`), and lists
+event item types the parser does not know (`unknown_item_types`). In a local check with Codex CLI
+0.163.0-alpha.11.2, `--disable multi_agent` turned the feature off in `codex features list`, yet a worker asked to
+start a helper still called the `wait` collaboration tool, with and without the switch. Neither run showed a
+`spawn_agent` call, so whether the switch blocks spawning is not yet confirmed.
 
 ## Example 1 — reproduce the committed results without any model CLI
 
