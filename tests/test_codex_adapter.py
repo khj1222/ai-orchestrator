@@ -318,6 +318,14 @@ def test_spawn_items_count_without_receiver_threads(tmp_path):
     assert result.subagents_spawned == 2 and result.collab_tools == ["close_agent", "spawn_agent", "wait"]
 
 
+def test_real_spawn_is_not_visible_in_the_exec_stream():
+    # CLI 0.163.0-alpha.11.2, 2026-10-25 (W18b E4b): a helper really ran (session records show a spawn_agent
+    # call and a child thread) with multi_agent disabled; the exec stream shows only "wait".
+    result = parse_events(FIXTURES / "exec-spawn-unseen-disabled.jsonl")
+    assert result.final_message == "AGENT /root/helper SAID READY"
+    assert result.collab_tools == ["wait"] and result.subagents_spawned == 0
+
+
 def test_receiver_threads_count_without_a_spawn_item(tmp_path):
     items = [{"type": "item.completed", "item": {"id": f"w{n}", "type": "collab_tool_call", "tool": "wait",
                                                  "sender_thread_id": "test-thread", "receiver_thread_ids": ids}}

@@ -40,6 +40,7 @@ store, or arbitrary event metadata is copied into this result.
     # 다른 이름으로 보고해도 감사에서 보이게 한다.
     unknown_item_types: list[str] = field(default_factory=list)
     # W18b: collab_tool_call 의 도구 이름(정렬). multi_agent 를 꺼도 "wait" 가 쓰인 실제 기록이 있다.
+    # Codex 의 subagents_spawned 는 출력에 보이는 것만 센다. 실제 생성은 세션 기록에만 남았다(CLI 0.163).
     collab_tools: list[str] = field(default_factory=list)
 
 

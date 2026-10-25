@@ -81,14 +81,15 @@ keys that took adapter defaults (`defaults_applied`), and the CLI version: in `s
 task in `summary.json` and `run-report.json` for `run-plan`.
 
 A Codex route can turn off CLI features with `"disable_features"`, one `--disable <name>` each (lowercase names from
-`codex features list`). Codex CLI 0.163 enables subagents (`multi_agent`) by default; set
-`"disable_features": ["multi_agent", "multi_agent_v2"]` when a worker must stay a single session. The list is kept in
-the resolved route. Each attempt's `adapter-result.json` lists the collaboration tools the worker called
-(`collab_tools`), counts subagents from `spawn_agent` calls and receiver threads (`subagents_spawned`), and lists
-event item types the parser does not know (`unknown_item_types`). In a local check with Codex CLI
-0.163.0-alpha.11.2, `--disable multi_agent` turned the feature off in `codex features list`, yet a worker asked to
-start a helper still called the `wait` collaboration tool, with and without the switch. Neither run showed a
-`spawn_agent` call, so whether the switch blocks spawning is not yet confirmed.
+`codex features list`). The list is kept in the resolved route. **It does not keep a worker to a single session.** In
+local checks with Codex CLI 0.163.0-alpha.11.2 (October 2026), a worker asked to start a helper agent did so both with
+and without `--disable multi_agent --disable multi_agent_v2`, although `codex features list` showed the features off.
+The helper ran only with `"ephemeral": false`; with `--ephemeral` the spawn failed because no session record existed.
+The `exec --json` stream did not show the spawn: it showed one `collab_tool_call` (`wait`, no receiver threads). The
+spawn appeared only in the saved session records (`~/.codex/sessions`): a `spawn_agent` function call in the parent's
+record and a child record whose `parent_thread_id` is the parent thread. Each attempt's `adapter-result.json` lists the
+collaboration tools seen in the stream (`collab_tools`) and counts subagents it can see there (`subagents_spawned`,
+from `spawn_agent` items and receiver threads), so `0` does not mean that no subagent ran.
 
 ## Example 1 — reproduce the committed results without any model CLI
 

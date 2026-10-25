@@ -152,9 +152,10 @@ forward compatibility. Missing terminal events never imply successful exit.
 W18b: collab_tool_call items (captured from CLI 0.163: id, tool, sender_thread_id,
 receiver_thread_ids, agents_states, status) list their tool names in collab_tools.
 subagents_spawned is the larger of the distinct spawn_agent items and the distinct
-receiver threads other than the sender (0 when none were read). A spawn_agent item
-has not been captured yet. Other item types are listed by name only in
-unknown_item_types.
+receiver threads other than the sender (0 when none were read). It is only what the
+stream shows: in CLI 0.163 a real spawn appeared in the session records, not in the
+exec stream (see exec-spawn-unseen-disabled.jsonl), so 0 is not proof that no
+subagent ran. Other item types are listed by name only in unknown_item_types.
 """
     result = AttemptResult()
     commands: dict[str, CommandExecution] = {}
