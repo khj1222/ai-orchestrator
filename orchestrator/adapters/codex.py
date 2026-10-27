@@ -12,6 +12,7 @@ measurement of the current attempt or a guarantee that a new run is affordable.
 """
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -31,6 +32,18 @@ class CodexSpec:
     ephemeral: bool = True
     skip_git_repo_check: bool = False
     approve_for_me: bool = False
+    # W18b: one `--disable <name>` each. CLI 0.163 enables `multi_agent` (subagents) by default.
+    disable_features: tuple[str, ...] = ()
+    # W18b E4c: False adds `-c agents.enabled=false`, which removed the subagent tools in CLI
+    # 0.164; `--disable multi_agent` did not. None leaves the CLI's own setting.
+    agents_enabled: bool | None = None
+
+
+FEATURE_NAME = re.compile(r"[a-z0-9_.]+")
+# exec --json thread item types (Codex exec docs) plus collab_tool_call; only the first two
+# and collab_tool_call are read. Any other type is listed in unknown_item_types.
+KNOWN_ITEM_TYPES = frozenset({"agent_message", "reasoning", "command_execution", "file_change",
+                              "mcp_tool_call", "web_search", "todo_list", "error", "collab_tool_call"})
 
 
 class EventParseError(ValueError):
@@ -98,6 +111,12 @@ The process layer must still handle a file disappearing before process start.
                 raise ValueError("Execution switches must be boolean")
         if spec.approve_for_me and spec.sandbox != "workspace-write":
             raise ValueError("approve_for_me requires workspace-write sandbox")
+        features = spec.disable_features
+        if (not isinstance(features, tuple) or len(set(features)) != len(features)
+                or not all(isinstance(f, str) and FEATURE_NAME.fullmatch(f) for f in features)):
+            raise ValueError("disable_features must be distinct lowercase feature names")
+        if spec.agents_enabled is not None and not isinstance(spec.agents_enabled, bool):
+            raise ValueError("agents_enabled must be a boolean or None")
         workspace = Path(workspace).resolve()
         argv = [str(self.codex_path), "exec", "--json", "-o",
                 _workspace_path(spec.last_message_path, workspace)]
@@ -108,6 +127,10 @@ The process layer must still handle a file disappearing before process start.
             argv.append("--approve-for-me")
         else:
             argv += ["-s", spec.sandbox]
+        for feature in features:
+            argv += ["--disable", feature]
+        if spec.agents_enabled is not None:
+            argv += ["-c", "agents.enabled=" + ("true" if spec.agents_enabled else "false")]
         argv += ["-C", str(workspace), "--model", model]
         if spec.effort is not None:
             effort = _text(spec.effort, "effort")
@@ -132,9 +155,21 @@ def parse_events(path: Path) -> AttemptResult:
 Started commands are retained when an attempt is killed. Updates replace the
 same item, rather than duplicating it. Unknown event types are ignored for
 forward compatibility. Missing terminal events never imply successful exit.
+
+W18b: collab_tool_call items (captured from CLI 0.163: id, tool, sender_thread_id,
+receiver_thread_ids, agents_states, status) list their tool names in collab_tools.
+subagents_spawned is the larger of the distinct spawn_agent items and the distinct
+receiver threads other than the sender (0 when none were read). It is only what the
+stream shows: in CLI 0.163 a real spawn appeared in the session records, not in the
+exec stream (see exec-spawn-unseen-disabled.jsonl), so 0 is not proof that no
+subagent ran. Other item types are listed by name only in unknown_item_types.
 """
     result = AttemptResult()
     commands: dict[str, CommandExecution] = {}
+    spawned: set[str] = set()
+    receivers: set[str] = set()
+    tools: set[str] = set()
+    unknown: set[str] = set()
     failed = False
     for event in _events(path):
         kind = event["type"]
@@ -183,7 +218,22 @@ forward compatibility. Missing terminal events never imply successful exit.
                         or not isinstance(status, str)):
                     raise EventParseError("Invalid command execution")
                 commands[item_id] = CommandExecution(item_id, command, code, status)
+            elif item.get("type") == "collab_tool_call":
+                item_id = item.get("id")
+                threads = item.get("receiver_thread_ids", [])
+                if (not isinstance(item_id, str) or not item_id or not isinstance(item.get("tool"), str)
+                        or not isinstance(threads, list) or not all(isinstance(t, str) for t in threads)):
+                    raise EventParseError("Invalid collab tool call")
+                tools.add(item["tool"])
+                if item["tool"] == "spawn_agent":
+                    spawned.add(item_id)
+                receivers.update(t for t in threads if t and t != item.get("sender_thread_id"))
+            elif isinstance(item.get("type"), str) and item["type"] not in KNOWN_ITEM_TYPES:
+                unknown.add(item["type"])
     result.command_executions = list(commands.values())
+    result.subagents_spawned = max(len(spawned), len(receivers))
+    result.collab_tools = sorted(tools)
+    result.unknown_item_types = sorted(unknown)
     if failed:
         result.status = "failed"
     elif result.status == "incomplete":

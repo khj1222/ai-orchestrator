@@ -262,3 +262,133 @@ def test_auto_review_rejects_ambiguous_or_conflicting_settings(command_inputs, c
     adapter, spec, workspace, prompt = command_inputs
     with pytest.raises(ValueError):
         adapter.build_command(replace(spec, **changes), workspace, prompt)
+
+
+# W18b: feature switches and subagent evidence
+
+def test_disable_features_come_before_workspace_and_stdin_marker(command_inputs):
+    adapter, spec, workspace, prompt = command_inputs
+    spec = replace(spec, sandbox="workspace-write", approve_for_me=True,
+                   disable_features=("multi_agent", "multi_agent_v2"))
+    argv = adapter.build_command(spec, workspace, prompt)
+    start = argv.index("--approve-for-me") + 1
+    assert argv[start:start + 5] == ["--disable", "multi_agent", "--disable", "multi_agent_v2", "-C"]
+    assert argv[-1] == "-" and argv.count("--disable") == 2
+
+
+def test_no_disable_flag_by_default(command_inputs):
+    adapter, spec, workspace, prompt = command_inputs
+    assert "--disable" not in adapter.build_command(spec, workspace, prompt)
+
+
+@pytest.mark.parametrize("features", [["multi_agent"], ("multi_agent", "multi_agent"), ("Multi_Agent",),
+                                      ("--enable",), ("",), ("multi agent",), (3,), "multi_agent"])
+def test_invalid_disable_features_rejected(command_inputs, features):
+    adapter, spec, workspace, prompt = command_inputs
+    with pytest.raises(ValueError, match="disable_features"):
+        adapter.build_command(replace(spec, disable_features=features), workspace, prompt)
+
+
+def test_synthetic_collab_stream_counts_distinct_spawn_items():
+    # Hand-made in the captured item shape; a real spawn_agent item has not been captured (fixtures README).
+    result = parse_events(FIXTURES / "exec-collab-synthetic.jsonl")
+    assert result.status == "completed" and result.final_message == "OK"
+    assert result.subagents_spawned == 2 and result.collab_tools == ["spawn_agent", "wait"]
+    assert result.unknown_item_types == ["future_item_kind"]
+
+
+@pytest.mark.parametrize("name", ["exec-collab-wait-enabled.jsonl", "exec-collab-wait-disabled.jsonl"])
+def test_real_collab_wait_streams(name):
+    # CLI 0.163.0-alpha.11.2, 2026-10-25 (W18b E4): both runs, multi_agent on and off, called "wait"
+    # with no receiver threads and showed no spawn_agent item.
+    result = parse_events(FIXTURES / name)
+    assert result.status == "completed" and result.final_message == "READY"
+    assert result.collab_tools == ["wait"] and result.subagents_spawned == 0
+    assert result.unknown_item_types == []
+
+
+def test_spawn_items_count_without_receiver_threads(tmp_path):
+    # A spawn whose child thread is not reported (or that failed) still counts, once per item id.
+    items = [{"type": f"item.{kind}", "item": {"id": item_id, "type": "collab_tool_call", "tool": tool,
+                                               "sender_thread_id": "test-thread", "receiver_thread_ids": []}}
+             for kind, item_id, tool in [("started", "s1", "spawn_agent"), ("completed", "s1", "spawn_agent"),
+                                         ("completed", "s2", "spawn_agent"), ("completed", "w1", "wait"),
+                                         ("completed", "x1", "close_agent")]]
+    result = parse_events(write_events(tmp_path, [thread(), *items, completed()]))
+    assert result.subagents_spawned == 2 and result.collab_tools == ["close_agent", "spawn_agent", "wait"]
+
+
+def test_real_spawn_is_not_visible_in_the_exec_stream():
+    # CLI 0.163.0-alpha.11.2, 2026-10-25 (W18b E4b): a helper really ran (session records show a spawn_agent
+    # call and a child thread) with multi_agent disabled; the exec stream shows only "wait".
+    result = parse_events(FIXTURES / "exec-spawn-unseen-disabled.jsonl")
+    assert result.final_message == "AGENT /root/helper SAID READY"
+    assert result.collab_tools == ["wait"] and result.subagents_spawned == 0
+
+
+def test_receiver_threads_count_without_a_spawn_item(tmp_path):
+    items = [{"type": "item.completed", "item": {"id": f"w{n}", "type": "collab_tool_call", "tool": "wait",
+                                                 "sender_thread_id": "test-thread", "receiver_thread_ids": ids}}
+             for n, ids in enumerate([["c1", "test-thread"], ["c1", "c2"], []])]
+    result = parse_events(write_events(tmp_path, [thread(), *items, completed()]))
+    assert result.subagents_spawned == 2 and result.collab_tools == ["wait"]
+
+
+def test_real_fixtures_report_no_subagents_and_no_unknown_items():
+    for name in ("exec-ok.jsonl", "exec-shell-stopped.jsonl"):
+        result = parse_events(FIXTURES / name)
+        assert result.subagents_spawned == 0 and result.unknown_item_types == [] and result.collab_tools == []
+
+
+def test_unknown_item_types_keep_names_only(tmp_path):
+    events = [thread()] + [{"type": "item.completed", "item": {"id": f"i{n}", "type": kind, "secret": "x"}}
+                           for n, kind in enumerate(["zeta_kind", "alpha_kind", "zeta_kind", "file_change", "mu_kind",
+                                                                     "beta_kind", "omega_kind", "kappa_kind"])]
+    result = parse_events(write_events(tmp_path, events + [completed()]))
+    # Six names: an unsorted set order matches sorted order by chance about once in 720 runs.
+    assert result.unknown_item_types == ["alpha_kind", "beta_kind", "kappa_kind", "mu_kind", "omega_kind", "zeta_kind"]
+    assert "secret" not in json.dumps(result.unknown_item_types)
+
+
+@pytest.mark.parametrize("changes", [{"id": None}, {"id": ""}, {"id": 7}, {"tool": None}, {"tool": 3},
+                                     {"receiver_thread_ids": "c1"}, {"receiver_thread_ids": [1]}])
+def test_malformed_collab_item_is_invalid_evidence(tmp_path, changes):
+    item = {"id": "c", "type": "collab_tool_call", "tool": "spawn_agent", "receiver_thread_ids": [], **changes}
+    event = {"type": "item.completed", "item": item}
+    with pytest.raises(EventParseError, match="collab"):
+        parse_events(write_events(tmp_path, [thread(), event, completed()]))
+
+
+# W18b E4c: `-c agents.enabled=false` removed the subagent tools in CLI 0.164; --disable did not.
+
+@pytest.mark.parametrize("value,expected", [(None, []), (False, ["-c", "agents.enabled=false"]),
+                                            (True, ["-c", "agents.enabled=true"])])
+def test_agents_enabled_setting_comes_before_workspace(command_inputs, value, expected):
+    adapter, spec, workspace, prompt = command_inputs
+    argv = adapter.build_command(replace(spec, agents_enabled=value, disable_features=("multi_agent",)),
+                                 workspace, prompt)
+    start = argv.index("multi_agent") + 1
+    assert argv[start:argv.index("-C")] == expected
+    assert argv[-1] == "-" and argv.count("agents.enabled=false") == (value is False)
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1, "true"])
+def test_invalid_agents_enabled_rejected(command_inputs, value):
+    adapter, spec, workspace, prompt = command_inputs
+    with pytest.raises(ValueError, match="agents_enabled"):
+        adapter.build_command(replace(spec, agents_enabled=value), workspace, prompt)
+
+
+def test_incomplete_log_keeps_the_spawns_it_read(tmp_path):
+    # Codex W18b review R1: a killed attempt has no terminal event; the count is what was read (instruction §2).
+    started = {"type": "item.started", "item": {"id": "s1", "type": "collab_tool_call", "tool": "spawn_agent",
+                                                "sender_thread_id": "test-thread", "receiver_thread_ids": []}}
+    result = parse_events(write_events(tmp_path, [thread(), {"type": "turn.started"}, started]))
+    assert result.status == "incomplete" and result.subagents_spawned == 1 and result.collab_tools == ["spawn_agent"]
+
+
+def test_real_stream_with_agents_disabled_has_no_collab_items():
+    # CLI 0.164.0-alpha.11.1, 2026-10-25: same prompt as exec-spawn-unseen-disabled.jsonl plus agents.enabled=false.
+    result = parse_events(FIXTURES / "exec-agents-disabled.jsonl")
+    assert result.final_message == "NO_SPAWN_AGENT_TOOL"
+    assert result.collab_tools == [] and result.subagents_spawned == 0 and result.status == "completed"

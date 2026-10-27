@@ -80,6 +80,23 @@ the file there. Admin-managed (policy) settings still apply, including any hooks
 keys that took adapter defaults (`defaults_applied`), and the CLI version: in `summary.json` for `run-task`, and per
 task in `summary.json` and `run-report.json` for `run-plan`.
 
+A Codex route can turn off CLI features with `"disable_features"`, one `--disable <name>` each (lowercase names from
+`codex features list`). The list is kept in the resolved route. **It does not keep a worker to a single session.** In
+local checks with Codex CLI 0.163.0-alpha.11.2 (October 2026), a worker asked to start a helper agent did so both with
+and without `--disable multi_agent --disable multi_agent_v2`, although `codex features list` showed the features off.
+The helper ran only with `"ephemeral": false`; with `--ephemeral` the spawn failed because no session record existed.
+The `exec --json` stream did not show the spawn: it showed one `collab_tool_call` (`wait`, no receiver threads). The
+spawn appeared only in the saved session records (`~/.codex/sessions`): a `spawn_agent` function call in the parent's
+record and a child record whose `parent_thread_id` is the parent thread. Each attempt's `adapter-result.json` lists the
+collaboration tools seen in the stream (`collab_tools`) and counts subagents it can see there (`subagents_spawned`,
+from `spawn_agent` items and receiver threads), so `0` does not mean that no subagent ran.
+
+To keep a Codex worker to a single session, set `"agents_enabled": false` on the route. It adds
+`-c agents.enabled=false`. In a local check with Codex CLI 0.164.0-alpha.11.1, the same worker then had no tool for
+starting agents and no subagent appeared in the session records, while the same run without it (with
+`--disable multi_agent --disable multi_agent_v2`) started one. Without the key the CLI's own setting applies; the
+resolved route records the value.
+
 ## Example 1 — reproduce the committed results without any model CLI
 
 The repository contains the result of a real run: two search methods (`examples/search-ab/methods/`), an experiment
