@@ -183,7 +183,8 @@ used to compare this tool with handing the whole task to one session. Each task 
 one specification document, graded by hidden tests not provided to the workers. The fixed plan split each one into
 three or four plan tasks. Each task had two single-session runs and three runs of this tool (one with one worker, two
 with two workers); within a task the Codex CLI version, model and settings were the same. The decision rules were
-fixed before the runs.
+fixed before the runs. A longer write-up of the method and the limits is in
+[docs/single-session-comparison.md](docs/single-session-comparison.md).
 
 - Runs that passed every hidden test: single session 6/6, this tool 6/9. On one task all three runs of this tool
   missed the same single case. Under the pre-set rule the accuracy verdict is undecided.
@@ -254,7 +255,7 @@ verifier/            verification scripts (private data lives outside the reposi
 examples/search-ab/  the example project: protocol, dev data, methods, runner, results, report
 runs/                committed example plans (pilot-001, -parallel, -mixed, -mixed-2); run records are git-ignored
 tests/               tests of the manager itself (offline, no model CLI)
-docs/                development history
+docs/                development history, single-session comparison write-up
 ```
 
 ## License
