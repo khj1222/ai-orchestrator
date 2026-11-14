@@ -179,18 +179,19 @@ blocked, a channel through which code under test could publish evaluation detail
 from a manager-pinned source), gitlinks counted as deliverables, and path whitespace lost in parsing.
 
 **Comparison with a single session (November 2026).** Three small tasks, 15 runs and one fixed plan per task were
-used to compare this tool with handing the whole task to one session. Each task is a Python library with one
-specification document and three or four modules, graded by hidden tests the workers never see. Each task had two
-single-session runs and three runs of this tool (one with one worker, two with two workers); within a task the Codex
-CLI version, model and settings were the same. The decision rules were fixed before the runs.
+used to compare this tool with handing the whole task to one session. Each task is a small Python library defined by
+one specification document, graded by hidden tests not provided to the workers. The fixed plan split each one into
+three or four plan tasks. Each task had two single-session runs and three runs of this tool (one with one worker, two
+with two workers); within a task the Codex CLI version, model and settings were the same. The decision rules were
+fixed before the runs.
 
 - Runs that passed every hidden test: single session 6/6, this tool 6/9. On one task all three runs of this tool
   missed the same single case. Under the pre-set rule the accuracy verdict is undecided.
 - Excluding the time to write the plan, the per-task mean wall-clock time of this tool was 1.82–2.38 times that of
   the single session.
-- The threshold of two workers being at least 20% faster than one was met on 0 of the 2 tasks that could be compared.
-  On the one task where two workers actually ran concurrently and every run passed the hidden tests, two workers were
-  17.6% faster.
+- The threshold (a median wall-clock time with two workers at least 20% shorter than with one) was met on 0 of the 2
+  tasks that could be compared. On the one task where two workers actually ran concurrently and every run passed the
+  hidden tests, the median wall-clock time with two workers was 17.6% shorter.
 - Utility on larger tasks was not measured. The tasks, hidden tests and experiment tooling are not in this repository.
 
 ## Known limitations and failures
