@@ -17,7 +17,7 @@ Once it worked, the obvious question was left. Does splitting and checking like 
 - **Three tasks.** Each is a small Python library defined by one specification document (210 to 250 lines): a converter from a Markdown subset to HTML, a CSV reader with a schema checker, and a tool that summarises game logs with statistics.
 - **Three ways of running.** (1) Single session: give it the specification and let it do everything. (2) Orchestrator with one worker: three or four plan tasks, one after another. (3) Orchestrator with two workers: the same plan, up to two tasks at once.
 - **Fifteen runs.** Per task: two single-session runs, one run with one worker, two runs with two workers.
-- **Every worker was the same model.** Codex CLI with `gpt-6-astra` (high), subagents turned off. The plans were written by Claude, once per task, then read once by me and frozen.
+- **Every worker was the same model.** Codex CLI with `gpt-6-astra` (high), subagents turned off. The plans were written by Claude, once per task; I reviewed the points each plan flagged for checking, approved them, and froze the plans.
 - **Graded by hidden tests.** 67 to 79 cases per task. They were not given to the workers or to the session that wrote the plan. A run counts as complete only if it passes all of them.
 - **Decision rules fixed before the runs.** "It works" if the orchestrator has the higher completion rate on at least two tasks and the lower on none. "It does not work" if the single session is higher on at least two. Anything else is "undecided". For parallelism, only tasks completed under both the one-worker and the two-worker condition are compared, and the times of incomplete runs are left out. The median wall-clock time with two workers has to be at least 20% shorter than with one.
 
@@ -30,7 +30,7 @@ Once it worked, the obvious question was left. Does splitting and checking like 
 | Game log statistics | 2/2 complete | 3/3 complete | about 5 min | 9–10 min |
 
 - **Accuracy:** the orchestrator was better on no task, equal on two and worse on one. By the rule, undecided.
-- **Time:** even without the time to write the plan, the orchestrator's wall-clock time was 1.82 to 2.38 times the single session's, by per-task means. Adding one round of plan writing (about 18 to 21 minutes per task, an approximate figure from my notes) to one run and comparing that with the single session's mean run time gives roughly 5 to 7 times. The time I spent reading the plans is not included.
+- **Time:** even without the time to write the plan, the orchestrator's wall-clock time was 1.82 to 2.38 times the single session's, by per-task means. Adding one round of plan writing (about 18 to 21 minutes per task, an approximate figure from my notes) to one run and comparing that with the single session's mean run time gives roughly 5 to 7 times. The time I spent reviewing the plans is not included.
 - **Tokens:** comparing per-task means, the workers used 2.6 to 4.5 times as many input tokens and 1.9 to 2.5 times as many output tokens as the single sessions. In every run between 89% and 97% of the input was cached input, so this is not a price ratio. Tokens used separately by Codex's automatic approval review are not in these numbers.
 - **Parallelism:** the 20% threshold was met on 0 of the 2 tasks that could be compared. Only one task had two workers actually running at the same time with every run complete, and there the median wall-clock time was 17.6% shorter.
 - All 33 plan tasks across the nine orchestrator runs were accepted on the first attempt. There were no retries and no failed merges.
@@ -71,3 +71,7 @@ The way the plan enumerated cases may have played a part. That is not establishe
 On these three tasks, the single sessions had equal or higher hidden-test completion rates, shorter run times, and fewer recorded worker tokens. For an orchestrator to be worth it, I suspect the task has to be too big for one session, or there has to be a reason other than accuracy: cross-review by different models, long unattended runs, records and audit. I did not measure any of that.
 
 I have closed the experiment here. The tool, the results and the known limitations are in the [repository README](../README.md). If you have measured something similar, I would like to hear how it turned out.
+
+## How this experiment and write-up were made
+
+I have built this project together with coding agents from the start, and the experiment was no different. I set the question and the direction. Claude Code did the experiment design, managed the runs, and wrote the result report and the draft of this write-up. Codex wrote the hidden tests from the specifications alone, and reviewed the report and this write-up by recomputing the numbers from the run records. I checked and approved the design, the plans, the runs and the merges at each step. So much of what this post says "I" did was done by an agent with my approval.
